@@ -109,7 +109,7 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userRole =
         coordinates: coordinates || '13.7850 N, 121.0740 E',
         details: description,
         description: description,
-        photos: JSON.stringify(selectedPhotos),
+        photos: selectedPhotos, // Passed directly as an Array to match text[] column
         status: 'PENDING',
         created_at: new Date().toISOString()
       };
@@ -218,7 +218,7 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userRole =
           {selectedPhotos.length > 0 && (
             <div style={styles.photoListContainer}>
               <div style={styles.photoCountHeader}>{selectedPhotos.length} photo(s) attached</div>
-              {selectedPhotos.map((_, idx) => (
+              {selectedPhotos.map((photo, idx) => (
                 <div key={idx} style={styles.photoChip}>
                   <span>Photo Attachment #{idx + 1}</span>
                   <button type="button" onClick={() => handleRemovePhoto(idx)} style={styles.removePhotoBtn}>Remove</button>
