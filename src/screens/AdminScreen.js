@@ -38,6 +38,8 @@ export default function AdminScreen({ onBack }) {
   };
 
   const handleUpdateReportStatus = async (statusType) => {
+    if (!selectedReport?.id) return;
+
     setIsProcessingAction(true);
     try {
       const { error } = await supabase
@@ -78,26 +80,26 @@ export default function AdminScreen({ onBack }) {
   };
 
   return (
-    <div style={styles.pageContainer}>
+    <div style={styles.container}>
       <div style={styles.navHeader}>
         <button style={styles.backBtn} onClick={onBack}>
-          &lt; Back to App
+          &lt; Back
         </button>
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             <h2 style={styles.headerTitle}>CDRRMO Command Center</h2>
-            <span style={styles.adminBadge}>ADMIN PANEL</span>
+            <span style={styles.adminBadge}>ADMIN</span>
           </div>
-          <div style={styles.headerSub}>Batangas City Disaster Risk Reduction & Management Office</div>
+          <div style={styles.headerSub}>Batangas City Disaster Operations Platform</div>
         </div>
       </div>
 
       {!selectedReport ? (
-        <div style={styles.mainContent}>
+        <div style={styles.viewSection}>
           <div style={styles.sectionHeaderRow}>
-            <span style={styles.sectionHeader}>Submitted Reports Database ({reports.length})</span>
+            <span style={styles.sectionHeader}>Submitted Reports ({reports.length})</span>
             <button style={styles.refreshBtn} onClick={fetchLiveReports} disabled={isLoading}>
-              {isLoading ? 'Syncing...' : 'Sync Live Feed'}
+              {isLoading ? 'Syncing...' : 'Sync Feed'}
             </button>
           </div>
 
@@ -106,7 +108,7 @@ export default function AdminScreen({ onBack }) {
               <p>No reports in database. Submit a report from the Citizen form to view it here.</p>
             </div>
           ) : (
-            <div style={styles.reportGrid}>
+            <div style={styles.reportList}>
               {reports.map((item) => (
                 <div key={item.id} style={styles.fileCard}>
                   <div style={styles.fileCardHeader}>
@@ -140,25 +142,25 @@ export default function AdminScreen({ onBack }) {
           )}
         </div>
       ) : (
-        /* GOOGLE FORM VERTICAL SUMMARY LAYOUT */
+        /* GOOGLE FORM STYLE VERTICAL SUMMARY CARD IN MOBILE VIEW */
         <div style={styles.formSheetContainer}>
           <div style={styles.formSheetHeaderCard}>
             <div style={styles.formSheetTitleRow}>
               <div>
-                <span style={styles.formSheetSub}>PROJECT AGAP - INCIDENT SUBMISSION RESPONSE</span>
-                <h2 style={styles.formSheetTitle}>Ticket Reference: {selectedReport.id}</h2>
+                <span style={styles.formSheetSub}>INCIDENT SUBMISSION RESPONSE</span>
+                <h2 style={styles.formSheetTitle}>Ticket: {selectedReport.id}</h2>
               </div>
               <button style={styles.closeSheetBtn} onClick={() => setSelectedReport(null)}>
-                Close Inspector
+                Close
               </button>
             </div>
             <div style={styles.formSheetMetaBar}>
-              Status: <strong>{selectedReport.status || 'PENDING'}</strong> | Submitted: {selectedReport.created_at ? new Date(selectedReport.created_at).toLocaleString() : 'Recently'}
+              Status: <strong>{selectedReport.status || 'PENDING'}</strong> | Submitted: {selectedReport.created_at ? new Date(selectedReport.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Recently'}
             </div>
           </div>
 
           <div style={styles.formSectionCard}>
-            <label style={styles.formSectionLabel}>1. SUBMITTER & USER ROLE</label>
+            <label style={styles.formSectionLabel}>1. SUBMITTER INFO</label>
             <div style={styles.formValueText}>{selectedReport.sender_name || 'Anonymous Submitter'}</div>
             <div style={styles.formSubText}>Role: {selectedReport.user_role || 'CITIZEN'}</div>
           </div>
@@ -169,14 +171,14 @@ export default function AdminScreen({ onBack }) {
           </div>
 
           <div style={styles.formSectionCard}>
-            <label style={styles.formSectionLabel}>3. SEVERITY URGENCY LEVEL</label>
+            <label style={styles.formSectionLabel}>3. SEVERITY LEVEL</label>
             <div style={{ ...styles.formValueTextBold, color: '#DC2626' }}>{selectedReport.severity}</div>
           </div>
 
           <div style={styles.formSectionCard}>
-            <label style={styles.formSectionLabel}>4. INCIDENT LOCATION & GPS COORDINATES</label>
+            <label style={styles.formSectionLabel}>4. LOCATION & GPS COORDINATES</label>
             <div style={styles.formValueText}>Location: {selectedReport.location}</div>
-            <div style={styles.formSubText}>Coordinates: {selectedReport.coordinates || '13.7850 N, 121.0740 E'}</div>
+            <div style={styles.formSubText}>GPS: {selectedReport.coordinates || '13.7850 N, 121.0740 E'}</div>
           </div>
 
           <div style={styles.formSectionCard}>
@@ -186,9 +188,9 @@ export default function AdminScreen({ onBack }) {
 
           <div style={styles.formSectionCard}>
             <label style={styles.formSectionLabel}>6. ATTACHED PHOTO EVIDENCE</label>
-            {selectedReport.photo_urls && selectedReport.photo_urls.length > 0 ? (
+            {selectedReport.photo_evidence && selectedReport.photo_evidence.length > 0 ? (
               <div style={styles.imageGrid}>
-                {selectedReport.photo_urls.map((photoSrc, idx) => (
+                {selectedReport.photo_evidence.map((photoSrc, idx) => (
                   <div key={idx} style={styles.imageCard}>
                     {typeof photoSrc === 'string' && photoSrc.startsWith('data:image') ? (
                       <img src={photoSrc} alt={`Evidence ${idx + 1}`} style={styles.evidenceImage} />
@@ -204,7 +206,7 @@ export default function AdminScreen({ onBack }) {
           </div>
 
           <div style={styles.formActionCard}>
-            <label style={styles.formSectionLabel}>7. COMMAND CENTER DECISION & DISPATCH WORKFLOW</label>
+            <label style={styles.formSectionLabel}>7. COMMAND CENTER WORKFLOW & ACTIONS</label>
 
             <div style={styles.inputGroup}>
               <label style={styles.inputLabelText}>ASSIGN RESPONDER UNIT:</label>
@@ -242,7 +244,7 @@ export default function AdminScreen({ onBack }) {
                 onClick={() => handleUpdateReportStatus('APPROVED')}
                 disabled={isProcessingAction}
               >
-                Approve and Dispatch {assignedUnit}
+                Approve and Dispatch
               </button>
 
               <button
@@ -250,7 +252,7 @@ export default function AdminScreen({ onBack }) {
                 onClick={() => handleUpdateReportStatus('UNDER_INVESTIGATION')}
                 disabled={isProcessingAction}
               >
-                Put Under Barangay Investigation
+                Put Under Investigation
               </button>
 
               <button
@@ -277,58 +279,58 @@ export default function AdminScreen({ onBack }) {
 }
 
 const styles = {
-  pageContainer: { width: '100%', minHeight: '100vh', backgroundColor: '#F1F5F9', padding: '16px', fontFamily: "'Inter', sans-serif", boxSizing: 'border-box' },
-  navHeader: { display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '16px', backgroundColor: '#FFFFFF', padding: '12px 16px', borderRadius: '8px', border: '1px solid #E2E8F0' },
-  backBtn: { backgroundColor: '#0F766E', color: '#FFFFFF', border: 'none', padding: '6px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: '700', cursor: 'pointer' },
+  container: { maxWidth: '440px', margin: '0 auto', minHeight: '100vh', backgroundColor: '#F8FAFC', padding: '16px 16px 80px 16px', fontFamily: "'Inter', sans-serif", boxSizing: 'border-box' },
+  navHeader: { display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' },
+  backBtn: { backgroundColor: 'transparent', border: 'none', color: '#0F766E', fontSize: '13px', fontWeight: '700', cursor: 'pointer' },
   headerTitle: { fontSize: '16px', fontWeight: '800', color: '#0F172A', margin: 0 },
-  adminBadge: { fontSize: '10px', fontWeight: '800', backgroundColor: '#0F766E', color: '#FFFFFF', padding: '2px 6px', borderRadius: '4px' },
+  adminBadge: { fontSize: '9px', fontWeight: '800', backgroundColor: '#0F766E', color: '#FFFFFF', padding: '2px 6px', borderRadius: '4px' },
   headerSub: { fontSize: '11px', color: '#64748B' },
-  mainContent: { maxWidth: '900px', margin: '0 auto' },
-  sectionHeaderRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' },
-  sectionHeader: { fontSize: '14px', fontWeight: '800', color: '#0F172A' },
-  refreshBtn: { fontSize: '11px', fontWeight: '700', color: '#0F766E', backgroundColor: '#CCFBF1', border: 'none', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer' },
-  emptyCard: { backgroundColor: '#FFFFFF', padding: '24px', borderRadius: '8px', border: '1px solid #E2E8F0', textAlign: 'center', color: '#64748B', fontSize: '12px' },
-  reportGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '12px' },
-  fileCard: { backgroundColor: '#FFFFFF', border: '1px solid #CBD5E1', borderRadius: '8px', padding: '12px', display: 'flex', flexDirection: 'column', gap: '6px' },
+  viewSection: { marginBottom: '20px' },
+  sectionHeaderRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' },
+  sectionHeader: { fontSize: '13px', fontWeight: '800', color: '#1E293B' },
+  refreshBtn: { fontSize: '11px', fontWeight: '700', color: '#0F766E', backgroundColor: '#CCFBF1', border: 'none', padding: '5px 10px', borderRadius: '6px', cursor: 'pointer' },
+  emptyCard: { backgroundColor: '#FFFFFF', padding: '20px', borderRadius: '8px', border: '1px solid #E2E8F0', textAlign: 'center', color: '#64748B', fontSize: '12px' },
+  reportList: { display: 'flex', flexDirection: 'column', gap: '10px' },
+  fileCard: { backgroundColor: '#FFFFFF', border: '1px solid #CBD5E1', borderRadius: '10px', padding: '12px', display: 'flex', flexDirection: 'column', gap: '6px' },
   fileCardHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
-  fileIdTag: { fontSize: '11px', fontWeight: '800', color: '#0F766E', backgroundColor: '#F0FDF4', padding: '2px 6px', borderRadius: '4px' },
+  fileIdTag: { fontSize: '10px', fontWeight: '800', color: '#0F766E', backgroundColor: '#F0FDF4', padding: '2px 6px', borderRadius: '4px' },
   statusYellow: { fontSize: '10px', fontWeight: '800', color: '#D97706', backgroundColor: '#FEF3C7', padding: '2px 8px', borderRadius: '10px' },
   statusGreen: { fontSize: '10px', fontWeight: '800', color: '#15803D', backgroundColor: '#DCFCE7', padding: '2px 8px', borderRadius: '10px' },
   statusBlue: { fontSize: '10px', fontWeight: '800', color: '#1D4ED8', backgroundColor: '#DBEAFE', padding: '2px 8px', borderRadius: '10px' },
   statusRed: { fontSize: '10px', fontWeight: '800', color: '#B91C1C', backgroundColor: '#FEE2E2', padding: '2px 8px', borderRadius: '10px' },
   fileTitle: { fontSize: '13px', fontWeight: '800', color: '#0F172A', margin: 0 },
   fileMeta: { fontSize: '11px', color: '#475569' },
-  processFileBtn: { width: '100%', padding: '8px', backgroundColor: '#0F766E', color: '#FFFFFF', border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: '800', cursor: 'pointer', marginTop: 'auto' },
+  processFileBtn: { width: '100%', padding: '8px', backgroundColor: '#0F766E', color: '#FFFFFF', border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: '800', cursor: 'pointer', marginTop: '4px' },
 
-  formSheetContainer: { maxWidth: '680px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '12px' },
-  formSheetHeaderCard: { backgroundColor: '#FFFFFF', borderTop: '8px solid #0F766E', borderLeft: '1px solid #CBD5E1', borderRight: '1px solid #CBD5E1', borderBottom: '1px solid #CBD5E1', borderRadius: '8px', padding: '16px' },
+  formSheetContainer: { display: 'flex', flexDirection: 'column', gap: '10px' },
+  formSheetHeaderCard: { backgroundColor: '#FFFFFF', borderTop: '6px solid #0F766E', borderLeft: '1px solid #CBD5E1', borderRight: '1px solid #CBD5E1', borderBottom: '1px solid #CBD5E1', borderRadius: '8px', padding: '12px' },
   formSheetTitleRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' },
-  formSheetSub: { fontSize: '10px', fontWeight: '800', color: '#0F766E', letterSpacing: '0.5px' },
-  formSheetTitle: { fontSize: '18px', fontWeight: '800', color: '#0F172A', margin: '4px 0 0 0' },
-  closeSheetBtn: { backgroundColor: '#F1F5F9', border: '1px solid #CBD5E1', padding: '6px 12px', borderRadius: '6px', fontSize: '11px', fontWeight: '700', color: '#475569', cursor: 'pointer' },
-  formSheetMetaBar: { fontSize: '11px', color: '#64748B', marginTop: '8px', borderTop: '1px solid #F1F5F9', paddingTop: '8px' },
+  formSheetSub: { fontSize: '9px', fontWeight: '800', color: '#0F766E', letterSpacing: '0.5px' },
+  formSheetTitle: { fontSize: '15px', fontWeight: '800', color: '#0F172A', margin: '2px 0 0 0' },
+  closeSheetBtn: { backgroundColor: '#F1F5F9', border: '1px solid #CBD5E1', padding: '4px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: '700', color: '#475569', cursor: 'pointer' },
+  formSheetMetaBar: { fontSize: '10px', color: '#64748B', marginTop: '6px', borderTop: '1px solid #F1F5F9', paddingTop: '6px' },
 
-  formSectionCard: { backgroundColor: '#FFFFFF', border: '1px solid #CBD5E1', borderRadius: '8px', padding: '14px' },
-  formSectionLabel: { fontSize: '11px', fontWeight: '800', color: '#475569', display: 'block', marginBottom: '6px', letterSpacing: '0.5px' },
-  formValueText: { fontSize: '12px', color: '#0F172A' },
-  formValueTextBold: { fontSize: '13px', fontWeight: '800', color: '#0F172A' },
-  formSubText: { fontSize: '11px', color: '#64748B', marginTop: '2px' },
-  formParagraphText: { fontSize: '12px', color: '#334155', margin: 0, lineHeight: '1.5' },
+  formSectionCard: { backgroundColor: '#FFFFFF', border: '1px solid #CBD5E1', borderRadius: '8px', padding: '10px' },
+  formSectionLabel: { fontSize: '10px', fontWeight: '800', color: '#475569', display: 'block', marginBottom: '4px', letterSpacing: '0.5px' },
+  formValueText: { fontSize: '11px', color: '#0F172A' },
+  formValueTextBold: { fontSize: '12px', fontWeight: '800', color: '#0F172A' },
+  formSubText: { fontSize: '10px', color: '#64748B', marginTop: '2px' },
+  formParagraphText: { fontSize: '11px', color: '#334155', margin: 0, lineHeight: '1.4' },
 
-  imageGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '8px', marginTop: '8px' },
-  imageCard: { border: '1px solid #CBD5E1', borderRadius: '6px', overflow: 'hidden', height: '110px', backgroundColor: '#F8FAFC', display: 'flex', alignItems: 'center', justifyContent: 'center' },
+  imageGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))', gap: '6px', marginTop: '6px' },
+  imageCard: { border: '1px solid #CBD5E1', borderRadius: '6px', overflow: 'hidden', height: '80px', backgroundColor: '#F8FAFC', display: 'flex', alignItems: 'center', justifyContent: 'center' },
   evidenceImage: { width: '100%', height: '100%', objectFit: 'cover' },
-  fallbackPhotoBox: { padding: '8px', fontSize: '11px', color: '#64748B', textAlign: 'center' },
+  fallbackPhotoBox: { padding: '6px', fontSize: '10px', color: '#64748B', textAlign: 'center' },
 
-  formActionCard: { backgroundColor: '#FFFFFF', border: '1px solid #CBD5E1', borderLeft: '6px solid #0F766E', borderRadius: '8px', padding: '14px', display: 'flex', flexDirection: 'column', gap: '10px' },
-  inputGroup: { display: 'flex', flexDirection: 'column', gap: '4px' },
-  inputLabelText: { fontSize: '10px', fontWeight: '800', color: '#475569' },
-  selectInput: { padding: '8px', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '12px' },
-  textArea: { padding: '8px', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '12px', fontFamily: 'inherit' },
-  actionButtonGroup: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginTop: '4px' },
-  btnApprove: { padding: '10px', backgroundColor: '#15803D', color: '#FFFFFF', border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: '800', cursor: 'pointer' },
-  btnInvestigate: { padding: '10px', backgroundColor: '#D97706', color: '#FFFFFF', border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: '800', cursor: 'pointer' },
-  btnReject: { padding: '10px', backgroundColor: '#DC2626', color: '#FFFFFF', border: 'none', borderRadius: '8px', fontSize: '11px', fontWeight: '800', cursor: 'pointer' },
-  btnDelete: { padding: '10px', backgroundColor: '#475569', color: '#FFFFFF', border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: '800', cursor: 'pointer' },
-  btnDisabled: { padding: '10px', backgroundColor: '#94A3B8', color: '#FFFFFF', border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: '800', cursor: 'not-allowed' }
+  formActionCard: { backgroundColor: '#FFFFFF', border: '1px solid #CBD5E1', borderLeft: '5px solid #0F766E', borderRadius: '8px', padding: '10px', display: 'flex', flexDirection: 'column', gap: '8px' },
+  inputGroup: { display: 'flex', flexDirection: 'column', gap: '3px' },
+  inputLabelText: { fontSize: '9px', fontWeight: '800', color: '#475569' },
+  selectInput: { padding: '7px', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '11px' },
+  textArea: { padding: '7px', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '11px', fontFamily: 'inherit' },
+  actionButtonGroup: { display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '4px' },
+  btnApprove: { padding: '9px', backgroundColor: '#15803D', color: '#FFFFFF', border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: '800', cursor: 'pointer' },
+  btnInvestigate: { padding: '9px', backgroundColor: '#D97706', color: '#FFFFFF', border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: '800', cursor: 'pointer' },
+  btnReject: { padding: '9px', backgroundColor: '#DC2626', color: '#FFFFFF', border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: '800', cursor: 'pointer' },
+  btnDelete: { padding: '9px', backgroundColor: '#475569', color: '#FFFFFF', border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: '800', cursor: 'pointer' },
+  btnDisabled: { padding: '9px', backgroundColor: '#94A3B8', color: '#FFFFFF', border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: '800', cursor: 'not-allowed' }
 };

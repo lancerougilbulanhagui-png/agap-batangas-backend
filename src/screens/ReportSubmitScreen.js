@@ -61,9 +61,12 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userRole =
     setErrorMessage('');
 
     try {
-      // Incremental Ticket Numbering: AGAP-0001, AGAP-0002...
-      const { count } = await supabase.from('reports').select('*', { count: 'exact', head: true });
-      const nextNumber = (count || 0) + 1;
+      // Incremental Ticket Numbering starting from AGAP-0001
+      const { count, error: countErr } = await supabase
+        .from('reports')
+        .select('*', { count: 'exact', head: true });
+
+      const nextNumber = (countErr ? 0 : (count || 0)) + 1;
       const formattedTicketId = 'AGAP-' + String(nextNumber).padStart(4, '0');
 
       const photoDataArray = selectedPhotos.map((p) => p.dataUrl);
@@ -224,7 +227,7 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userRole =
 }
 
 const styles = {
-  container: { maxWidth: '440px', margin: '0 auto', padding: '16px', fontFamily: "'Inter', sans-serif" },
+  container: { maxWidth: '440px', margin: '0 auto', padding: '16px', fontFamily: "'Inter', sans-serif", boxSizing: 'border-box' },
   navHeader: { display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '14px' },
   backBtn: { backgroundColor: 'transparent', border: 'none', color: '#0F766E', fontSize: '13px', fontWeight: '700', cursor: 'pointer' },
   headerTitle: { fontSize: '18px', fontWeight: '800', color: '#0F172A', margin: 0 },
