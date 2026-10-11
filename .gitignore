@@ -1,0 +1,9 @@
+# Ignore heavy dependencies 
+node_modules/
+
+# Ignore local environment variables and keys 
+.env 
+.env.local 
+
+# Ignore build output 
+build/
