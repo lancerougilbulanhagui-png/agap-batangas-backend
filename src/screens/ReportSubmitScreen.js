@@ -12,8 +12,6 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userRole =
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
-
-  
   const handleGetGpsLocation = () => {
     if (!navigator.geolocation) {
       alert('Geolocation is not supported by your browser.');
@@ -37,8 +35,7 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userRole =
     );
   };
 
-
-  const compressImageFile = (file) => {
+  const compressAndConvertImage = (file) => {
     return new Promise((resolve) => {
       const reader = new FileReader();
       reader.readAsDataURL(file);
@@ -47,7 +44,7 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userRole =
         img.src = event.target.result;
         img.onload = () => {
           const canvas = document.createElement('canvas');
-          const MAX_WIDTH = 800; // Limits image width to 800px
+          const MAX_WIDTH = 600;
           const scaleFactor = MAX_WIDTH / img.width;
 
           if (scaleFactor < 1) {
@@ -60,25 +57,22 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userRole =
 
           const ctx = canvas.getContext('2d');
           ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-
-          // Compress to 60% quality JPEG (reduces 5MB photo to ~40KB)
-          const compressedBase64 = canvas.toDataURL('image/jpeg', 0.6);
-          resolve({ name: file.name, dataUrl: compressedBase64 });
+          const compressedBase64 = canvas.toDataURL('image/jpeg', 0.5);
+          resolve(compressedBase64);
         };
       };
     });
   };
 
   const handlePhotoUpload = async (event) => {
-    const files = Array.from(event.target.files || []);
+    const files = Array.from(event.target.files);
     if (files.length === 0) return;
 
-    const compressedPhotos = await Promise.all(
-      files.map((file) => compressImageFile(file))
+    const base64Images = await Promise.all(
+      files.map((file) => compressAndConvertImage(file))
     );
 
-    setSelectedPhotos((prev) => [...prev, ...compressedPhotos]);
-    event.target.value = '';
+    setSelectedPhotos((prev) => [...prev, ...base64Images]);
   };
 
   const handleRemovePhoto = (indexToRemove) => {
@@ -96,15 +90,12 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userRole =
     setErrorMessage('');
 
     try {
-      // Incremental Ticket Numbering starting from AGAP-0001
       const { count, error: countErr } = await supabase
         .from('reports')
         .select('*', { count: 'exact', head: true });
 
       const nextNumber = (countErr ? 0 : (count || 0)) + 1;
       const formattedTicketId = 'AGAP-' + String(nextNumber).padStart(4, '0');
-
-      const photoDataArray = selectedPhotos.map((p) => p.dataUrl);
 
       const payload = {
         id: formattedTicketId,
@@ -118,7 +109,7 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userRole =
         coordinates: coordinates || '13.7850 N, 121.0740 E',
         details: description,
         description: description,
-        photos: photoDataArray,
+        photos: JSON.stringify(selectedPhotos),
         status: 'PENDING',
         created_at: new Date().toISOString()
       };
@@ -126,7 +117,7 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userRole =
       const { error } = await supabase.from('reports').insert([payload]);
       if (error) throw error;
 
-      alert(`Report ${formattedTicketId} successfully submitted to Command Center!`);
+      alert(`Report ${formattedTicketId} successfully submitted with ${selectedPhotos.length} photo(s)!`);
       if (typeof onSubmitSuccess === 'function') onSubmitSuccess();
     } catch (err) {
       setErrorMessage(err.message || 'Error saving report.');
@@ -226,10 +217,10 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userRole =
 
           {selectedPhotos.length > 0 && (
             <div style={styles.photoListContainer}>
-              <div style={styles.photoCountHeader}>{selectedPhotos.length} photo(s) attached:</div>
-              {selectedPhotos.map((photo, idx) => (
+              <div style={styles.photoCountHeader}>{selectedPhotos.length} photo(s) attached</div>
+              {selectedPhotos.map((_, idx) => (
                 <div key={idx} style={styles.photoChip}>
-                  <span>{photo.name}</span>
+                  <span>Photo Attachment #{idx + 1}</span>
                   <button type="button" onClick={() => handleRemovePhoto(idx)} style={styles.removePhotoBtn}>Remove</button>
                 </div>
               ))}

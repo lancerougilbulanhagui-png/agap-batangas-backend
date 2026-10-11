@@ -30,6 +30,20 @@ export default function AdminScreen({ onBack }) {
     fetchLiveReports();
   }, []);
 
+  const getPhotoList = (photosData) => {
+    if (!photosData) return [];
+    if (Array.isArray(photosData)) return photosData;
+    if (typeof photosData === 'string') {
+      try {
+        const parsed = JSON.parse(photosData);
+        return Array.isArray(parsed) ? parsed : [parsed];
+      } catch (e) {
+        return [photosData];
+      }
+    }
+    return [];
+  };
+
   const openInspector = (report) => {
     setSelectedReport(report);
     setNoticeText(
@@ -38,7 +52,10 @@ export default function AdminScreen({ onBack }) {
   };
 
   const handleUpdateReportStatus = async (statusType) => {
-    if (!selectedReport?.id) return;
+    if (!selectedReport?.id) {
+      alert('No report selected.');
+      return;
+    }
 
     setIsProcessingAction(true);
     try {
@@ -142,7 +159,6 @@ export default function AdminScreen({ onBack }) {
           )}
         </div>
       ) : (
-        /* GOOGLE FORM STYLE VERTICAL SUMMARY CARD IN MOBILE VIEW */
         <div style={styles.formSheetContainer}>
           <div style={styles.formSheetHeaderCard}>
             <div style={styles.formSheetTitleRow}>
@@ -188,14 +204,14 @@ export default function AdminScreen({ onBack }) {
 
           <div style={styles.formSectionCard}>
             <label style={styles.formSectionLabel}>6. ATTACHED PHOTO EVIDENCE</label>
-            {selectedReport.photo_evidence && selectedReport.photo_evidence.length > 0 ? (
+            {getPhotoList(selectedReport.photos).length > 0 ? (
               <div style={styles.imageGrid}>
-                {selectedReport.photo_evidence.map((photoSrc, idx) => (
+                {getPhotoList(selectedReport.photos).map((photoSrc, idx) => (
                   <div key={idx} style={styles.imageCard}>
                     {typeof photoSrc === 'string' && photoSrc.startsWith('data:image') ? (
                       <img src={photoSrc} alt={`Evidence ${idx + 1}`} style={styles.evidenceImage} />
                     ) : (
-                      <div style={styles.fallbackPhotoBox}>{photoSrc}</div>
+                      <div style={styles.fallbackPhotoBox}>{String(photoSrc)}</div>
                     )}
                   </div>
                 ))}
