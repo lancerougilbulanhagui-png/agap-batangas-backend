@@ -12,6 +12,8 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userRole =
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
+
+  
   const handleGetGpsLocation = () => {
     if (!navigator.geolocation) {
       alert('Geolocation is not supported by your browser.');
@@ -35,15 +37,48 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userRole =
     );
   };
 
-  const handlePhotoUpload = (event) => {
-    const files = Array.from(event.target.files);
-    files.forEach((file) => {
+
+  const compressImageFile = (file) => {
+    return new Promise((resolve) => {
       const reader = new FileReader();
-      reader.onloadend = () => {
-        setSelectedPhotos((prev) => [...prev, { name: file.name, dataUrl: reader.result }]);
-      };
       reader.readAsDataURL(file);
+      reader.onload = (event) => {
+        const img = new Image();
+        img.src = event.target.result;
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const MAX_WIDTH = 800; // Limits image width to 800px
+          const scaleFactor = MAX_WIDTH / img.width;
+
+          if (scaleFactor < 1) {
+            canvas.width = MAX_WIDTH;
+            canvas.height = img.height * scaleFactor;
+          } else {
+            canvas.width = img.width;
+            canvas.height = img.height;
+          }
+
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+          // Compress to 60% quality JPEG (reduces 5MB photo to ~40KB)
+          const compressedBase64 = canvas.toDataURL('image/jpeg', 0.6);
+          resolve({ name: file.name, dataUrl: compressedBase64 });
+        };
+      };
     });
+  };
+
+  const handlePhotoUpload = async (event) => {
+    const files = Array.from(event.target.files || []);
+    if (files.length === 0) return;
+
+    const compressedPhotos = await Promise.all(
+      files.map((file) => compressImageFile(file))
+    );
+
+    setSelectedPhotos((prev) => [...prev, ...compressedPhotos]);
+    event.target.value = '';
   };
 
   const handleRemovePhoto = (indexToRemove) => {
