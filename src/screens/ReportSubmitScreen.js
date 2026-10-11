@@ -10,50 +10,52 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userRole =
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
-  // Handle multiple file upload selection
   const handlePhotoUpload = (e) => {
     const files = Array.from(e.target.files);
     if (files.length > 0) {
-      // Store file names or object URLs for preview
       setSelectedPhotos(prev => [...prev, ...files]);
     }
   };
 
-  // Remove a photo from preview selection
   const handleRemovePhoto = (indexToRemove) => {
     setSelectedPhotos(prev => prev.filter((_, index) => index !== indexToRemove));
   };
 
-  // Submit to Supabase
   const handleSubmit = async (e) => {
     e.preventDefault();
     setIsSubmitting(true);
     setErrorMessage('');
 
     try {
-      // Collect photo file names or data for database
       const photoNames = selectedPhotos.map(file => file.name);
+
+      const payload = {
+        id: 'AGAP-' + Date.now().toString(),
+        sender_name: userRole === 'GUEST' ? 'Guest Citizen' : 'Registered Resident',
+        user_role: userRole,
+        category: reportType || 'GENERAL_HAZARD',
+        report_type: reportType || 'General Hazard',
+        severity: severityLevel,
+        title: reportType || 'Emergency Hazard Report',
+        location: locationName,
+        coordinates: '13.7850° N, 121.0740° E',
+        details: description,
+        description: description,
+        photos: photoNames,
+        status: 'PENDING',
+        created_at: new Date().toISOString()
+      };
 
       const { data, error } = await supabase
         .from('reports')
-        .insert([
-          {
-            report_type: reportType,
-            severity: severityLevel,
-            location: locationName,
-            description: description,
-            photos: photoNames,
-            user_role: userRole,
-            created_at: new Date().toISOString()
-          }
-        ]);
+        .insert([payload]);
 
       if (error) {
-        console.error('Supabase Error Details:', error);
+        console.error('Supabase Error:', error);
         throw error;
       }
 
-      alert('✓ Emergency Hazard Report Successfully Submitted to Database!');
+      alert('✓ Report successfully submitted and saved to Supabase!');
       if (typeof onSubmitSuccess === 'function') {
         onSubmitSuccess();
       }
@@ -83,13 +85,13 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userRole =
       )}
 
       <form onSubmit={handleSubmit} style={styles.formCard}>
-        {/* Step 1: Typed Report Type */}
+        {/* Step 1: Custom Report Type */}
         <div style={styles.formSection}>
           <label style={styles.sectionLabel}>1. SPECIFY HAZARD / REPORT TYPE</label>
           <input
             type="text"
             style={styles.textInput}
-            placeholder="Type hazard type (e.g. Flooding, Fallen Tree, Broken Power Line...)"
+            placeholder="e.g. River Flooding, Fallen Electric Post, Landslide..."
             value={reportType}
             onChange={(e) => setReportType(e.target.value)}
             required
@@ -130,7 +132,7 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userRole =
           />
         </div>
 
-        {/* Step 4: Real Multi-Photo Picker */}
+        {/* Step 4: Multi-Photo Picker */}
         <div style={styles.formSection}>
           <label style={styles.sectionLabel}>4. ATTACH PHOTO EVIDENCE (SELECT 2 OR MORE)</label>
           <label htmlFor="photo-upload" style={styles.photoDropzone}>
@@ -139,7 +141,7 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userRole =
               <circle cx="12" cy="13" r="4"/>
             </svg>
             <div style={styles.photoDropText}>
-              + Click / Tap to browse pictures from device
+              + Click / Tap to choose photos from device
             </div>
             <input
               id="photo-upload"
@@ -151,11 +153,10 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userRole =
             />
           </label>
 
-          {/* Photo List & Count */}
           {selectedPhotos.length > 0 && (
             <div style={styles.photoListContainer}>
               <div style={styles.photoCountHeader}>
-                📸 {selectedPhotos.length} {selectedPhotos.length === 1 ? 'picture' : 'pictures'} selected:
+                📸 {selectedPhotos.length} {selectedPhotos.length === 1 ? 'photo' : 'photos'} attached:
               </div>
               {selectedPhotos.map((file, idx) => (
                 <div key={idx} style={styles.photoChip}>
@@ -175,7 +176,7 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userRole =
           <textarea
             style={styles.textArea}
             rows="3"
-            placeholder="Describe current situation, road blockage, or injured persons needing rescue..."
+            placeholder="Describe current situation or road blockage..."
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             required
@@ -187,7 +188,7 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userRole =
           style={isSubmitting ? styles.submitBtnDisabled : styles.submitBtn}
           disabled={isSubmitting}
         >
-          {isSubmitting ? 'Transmitting to Database...' : '🚀 Submit Report to LGU Command Center'}
+          {isSubmitting ? 'Transmitting to Supabase...' : '🚀 Submit Report to Command Center'}
         </button>
       </form>
     </div>
