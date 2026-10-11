@@ -1,217 +1,167 @@
 import React, { useState } from 'react';
+import { supabase } from '../supabaseClient';
 
-/**
- * Project AGAP Batangas - Emergency Hazard Submission Form
- */
-export default function ReportSubmitScreen({ onBack, onSubmitSuccess, onSubmitReport, userRole = 'CITIZEN' }) {
-  const [selectedCategory, setSelectedCategory] = useState('');
-  const [severityLevel, setSeverityLevel] = useState('');
-  const [locationName, setLocationName] = useState('');
+export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userRole = 'CITIZEN' }) {
+  const [reportType, setReportType] = useState('');
+  const [severityLevel, setSeverityLevel] = useState('SEVERE');
+  const [locationName, setLocationName] = useState('Brgy. Alangilan, Batangas City');
   const [description, setDescription] = useState('');
-  const [attachedPhotos, setAttachedPhotos] = useState([]);
+  const [selectedPhotos, setSelectedPhotos] = useState([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
 
-  const categories = [
-    { id: 'FLOODING', label: 'River / Flash Flood', color: '#0369A1' },
-    { id: 'ELECTRICAL', label: 'Fallen Wire / Spark', color: '#D97706' },
-    { id: 'OBSTRUCTION', label: 'Road Obstruction', color: '#15803D' },
-    { id: 'FIRE', label: 'Fire / Explosion', color: '#DC2626' },
-    { id: 'MEDICAL', label: 'Medical Emergency', color: '#B91C1C' }
-  ];
-
-  const handleAddPhoto = () => {
-    const photoNumber = attachedPhotos.length + 1;
-    const newPhotoName = `hazard_verification_photo_0${photoNumber}.jpg`;
-    setAttachedPhotos([...attachedPhotos, newPhotoName]);
+  // Handle multiple file upload selection
+  const handlePhotoUpload = (e) => {
+    const files = Array.from(e.target.files);
+    if (files.length > 0) {
+      // Store file names or object URLs for preview
+      setSelectedPhotos(prev => [...prev, ...files]);
+    }
   };
 
+  // Remove a photo from preview selection
   const handleRemovePhoto = (indexToRemove) => {
-    setAttachedPhotos(attachedPhotos.filter((_, idx) => idx !== indexToRemove));
+    setSelectedPhotos(prev => prev.filter((_, index) => index !== indexToRemove));
   };
 
-  const handleUseGpsLocation = () => {
-    setLocationName('Brgy. Alangilan, Batangas City (Near CICS Building - 13.7850° N, 121.0740° E)');
-  };
-
-  const handleSubmit = (e) => {
+  // Submit to Supabase
+  const handleSubmit = async (e) => {
     e.preventDefault();
-
-    if (!selectedCategory) {
-      alert('⚠️ Please select a Hazard Type before submitting.');
-      return;
-    }
-    if (!severityLevel) {
-      alert('⚠️ Please select a Severity Urgency Level before submitting.');
-      return;
-    }
-    if (!locationName.trim()) {
-      alert('⚠️ Please provide the Location Details or tap Auto-GPS Tag.');
-      return;
-    }
-    if (!description.trim()) {
-      alert('⚠️ Please provide Hazard Details & Remarks.');
-      return;
-    }
-
     setIsSubmitting(true);
+    setErrorMessage('');
 
-    setTimeout(() => {
-      setIsSubmitting(false);
-      
-      const randomTicketNum = Math.floor(100 + Math.random() * 900);
-      const newReportId = `BAT-0${randomTicketNum}`;
+    try {
+      // Collect photo file names or data for database
+      const photoNames = selectedPhotos.map(file => file.name);
 
-      const newReportObj = {
-        id: newReportId,
-        senderName: userRole === 'CITIZEN' ? 'Juan De La Cruz' : 'Guest Visitor',
-        userRole: userRole,
-        userPhone: userRole === 'CITIZEN' ? '+63 917 123 4567' : '+63 918 999 8811',
-        isOtpVerified: true,
-        deviceId: userRole === 'CITIZEN' ? 'Device-Citizen-01' : 'Guest-Device#8821',
-        deviceReportCount: '1 / 3',
-        category: selectedCategory,
-        severity: severityLevel.includes('RISK') ? severityLevel : `${severityLevel} RISK`,
-        title: `${selectedCategory} Hazard Alert`,
-        location: locationName,
-        coordinates: '13.7850, 121.0740',
-        submittedAt: 'Just now',
-        status: 'PENDING',
-        details: description,
-        photos: attachedPhotos.length > 0 
-          ? attachedPhotos.map((p, i) => `INCIDENT PHOTO ${i + 1}: ${p}`)
-          : ['INCIDENT PHOTO: Attached Evidence Photo']
-      };
+      const { data, error } = await supabase
+        .from('reports')
+        .insert([
+          {
+            report_type: reportType,
+            severity: severityLevel,
+            location: locationName,
+            description: description,
+            photos: photoNames,
+            user_role: userRole,
+            created_at: new Date().toISOString()
+          }
+        ]);
 
-      if (typeof onSubmitReport === 'function') {
-        onSubmitReport(newReportObj);
+      if (error) {
+        console.error('Supabase Error Details:', error);
+        throw error;
       }
 
-      alert(`✓ Emergency Hazard Report Successfully Submitted!\nTicket Reference: #${newReportId}\nDirectly Updated in Admin Database!`);
-
+      alert('✓ Emergency Hazard Report Successfully Submitted to Database!');
       if (typeof onSubmitSuccess === 'function') {
         onSubmitSuccess();
       }
-    }, 1000);
+    } catch (err) {
+      setErrorMessage(err.message || 'Error saving report to cloud database.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
     <div style={styles.container}>
-      {/* Navigation Header */}
       <div style={styles.navHeader}>
         <button style={styles.backBtn} onClick={onBack}>
           &lt; Back
         </button>
         <div>
           <h2 style={styles.headerTitle}>Submit Hazard Report</h2>
-          <div style={styles.headerSub}>Fast Direct Emergency Alert Form</div>
+          <div style={styles.headerSub}>Project AGAP Direct Alert Form</div>
         </div>
       </div>
 
-      {userRole === 'GUEST' && (
-        <div style={styles.guestNotice}>
-          ⚠️ <strong>Guest Mode:</strong> Your report will undergo automated phone verification before LGU unit dispatch.
+      {errorMessage && (
+        <div style={styles.errorBox}>
+          ⚠️ {errorMessage}
         </div>
       )}
 
       <form onSubmit={handleSubmit} style={styles.formCard}>
-        {/* Step 1: Hazard Type */}
+        {/* Step 1: Typed Report Type */}
         <div style={styles.formSection}>
-          <label style={styles.sectionLabel}>1. SELECT HAZARD TYPE *</label>
-          <div style={styles.categoryGrid}>
-            {categories.map((cat) => {
-              const isSelected = selectedCategory === cat.id;
-              return (
-                <button
-                  key={cat.id}
-                  type="button"
-                  style={isSelected ? { ...styles.catBtnActive, borderColor: cat.color } : styles.catBtnInactive}
-                  onClick={() => setSelectedCategory(cat.id)}
-                >
-                  <span style={{ ...styles.catDot, backgroundColor: isSelected ? cat.color : '#94A3B8' }}></span>
-                  <span>{cat.label}</span>
-                </button>
-              );
-            })}
-          </div>
+          <label style={styles.sectionLabel}>1. SPECIFY HAZARD / REPORT TYPE</label>
+          <input
+            type="text"
+            style={styles.textInput}
+            placeholder="Type hazard type (e.g. Flooding, Fallen Tree, Broken Power Line...)"
+            value={reportType}
+            onChange={(e) => setReportType(e.target.value)}
+            required
+          />
         </div>
 
-        {/* Step 2: Severity Level */}
+        {/* Step 2: Severity */}
         <div style={styles.formSection}>
-          <label style={styles.sectionLabel}>2. SEVERITY URGENCY LEVEL *</label>
+          <label style={styles.sectionLabel}>2. SEVERITY URGENCY LEVEL</label>
           <div style={styles.severityBar}>
             {[
               { id: 'LOW', label: 'Low', color: '#10B981' },
               { id: 'MODERATE', label: 'Moderate', color: '#F59E0B' },
               { id: 'SEVERE', label: 'Severe', color: '#EA580C' },
-              { id: 'CRITICAL', label: 'Critical / Crisis', color: '#DC2626' }
-            ].map((sev) => {
-              const isSelected = severityLevel === sev.id;
-              return (
-                <button
-                  key={sev.id}
-                  type="button"
-                  style={isSelected ? { ...styles.sevActive, backgroundColor: sev.color } : styles.sevInactive}
-                  onClick={() => setSeverityLevel(sev.id)}
-                >
-                  {sev.label}
-                </button>
-              );
-            })}
+              { id: 'CRITICAL', label: 'Critical', color: '#DC2626' }
+            ].map((sev) => (
+              <button
+                key={sev.id}
+                type="button"
+                style={severityLevel === sev.id ? { ...styles.sevActive, backgroundColor: sev.color } : styles.sevInactive}
+                onClick={() => setSeverityLevel(sev.id)}
+              >
+                {sev.label}
+              </button>
+            ))}
           </div>
         </div>
 
-        {/* Step 3: Location Details */}
+        {/* Step 3: Location */}
         <div style={styles.formSection}>
-          <div style={styles.labelRow}>
-            <label style={styles.sectionLabel}>3. LOCATION DETAILS *</label>
-            <button type="button" style={styles.gpsBadgeBtn} onClick={handleUseGpsLocation}>
-              📍 Auto-GPS Tag
-            </button>
-          </div>
+          <label style={styles.sectionLabel}>3. LOCATION DETAILS</label>
           <input
             type="text"
             style={styles.textInput}
-            placeholder="e.g., Brgy. Alangilan, near university access road gate..."
             value={locationName}
             onChange={(e) => setLocationName(e.target.value)}
             required
           />
-          <div style={styles.coordSubText}>Provide exact barangay, landmark, or tap Auto-GPS Tag.</div>
         </div>
 
-        {/* Step 4: Attach Photos */}
+        {/* Step 4: Real Multi-Photo Picker */}
         <div style={styles.formSection}>
-          <div style={styles.labelRow}>
-            <label style={styles.sectionLabel}>4. ATTACH VERIFICATION PHOTOS ({attachedPhotos.length})</label>
-            <span style={styles.multiTag}>Multi-Photo Verification Supported</span>
-          </div>
-
-          <div style={styles.photoDropzone} onClick={handleAddPhoto}>
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#0F766E" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <label style={styles.sectionLabel}>4. ATTACH PHOTO EVIDENCE (SELECT 2 OR MORE)</label>
+          <label htmlFor="photo-upload" style={styles.photoDropzone}>
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#0F766E" strokeWidth="2">
               <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
               <circle cx="12" cy="13" r="4"/>
             </svg>
             <div style={styles.photoDropText}>
-              + Tap to Capture / Upload Verification Photo
+              + Click / Tap to browse pictures from device
             </div>
-            <div style={styles.photoDropSub}>You can attach multiple photos for verification</div>
-          </div>
+            <input
+              id="photo-upload"
+              type="file"
+              accept="image/*"
+              multiple
+              onChange={handlePhotoUpload}
+              style={{ display: 'none' }}
+            />
+          </label>
 
-          {attachedPhotos.length > 0 && (
-            <div style={styles.attachedGallery}>
-              <div style={styles.galleryHeader}>Attached Photos for Verification ({attachedPhotos.length}):</div>
-              {attachedPhotos.map((photoName, idx) => (
-                <div key={idx} style={styles.photoItemRow}>
-                  <div style={styles.photoItemName}>
-                    <span style={styles.photoIndexTag}>#{idx + 1}</span>
-                    <span>📷 {photoName}</span>
-                  </div>
-                  <button
-                    type="button"
-                    style={styles.removePhotoBtn}
-                    onClick={() => handleRemovePhoto(idx)}
-                  >
-                    ✕ Remove
+          {/* Photo List & Count */}
+          {selectedPhotos.length > 0 && (
+            <div style={styles.photoListContainer}>
+              <div style={styles.photoCountHeader}>
+                📸 {selectedPhotos.length} {selectedPhotos.length === 1 ? 'picture' : 'pictures'} selected:
+              </div>
+              {selectedPhotos.map((file, idx) => (
+                <div key={idx} style={styles.photoChip}>
+                  <span>📷 {file.name}</span>
+                  <button type="button" onClick={() => handleRemovePhoto(idx)} style={styles.removePhotoBtn}>
+                    ✕
                   </button>
                 </div>
               ))}
@@ -219,9 +169,9 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, onSubmitRe
           )}
         </div>
 
-        {/* Step 5: Remarks */}
+        {/* Step 5: Details */}
         <div style={styles.formSection}>
-          <label style={styles.sectionLabel}>5. HAZARD DETAILS & REMARKS *</label>
+          <label style={styles.sectionLabel}>5. HAZARD DETAILS & REMARKS</label>
           <textarea
             style={styles.textArea}
             rows="3"
@@ -237,7 +187,7 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, onSubmitRe
           style={isSubmitting ? styles.submitBtnDisabled : styles.submitBtn}
           disabled={isSubmitting}
         >
-          {isSubmitting ? 'Transmitting Alert...' : '🚀 Submit Report to LGU Command Center'}
+          {isSubmitting ? 'Transmitting to Database...' : '🚀 Submit Report to LGU Command Center'}
         </button>
       </form>
     </div>
@@ -246,36 +196,25 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, onSubmitRe
 
 const styles = {
   container: { maxWidth: '440px', margin: '0 auto', padding: '16px', fontFamily: "'Inter', sans-serif" },
-  navHeader: { display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' },
+  navHeader: { display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '14px' },
   backBtn: { backgroundColor: 'transparent', border: 'none', color: '#0F766E', fontSize: '14px', fontWeight: '700', cursor: 'pointer' },
   headerTitle: { fontSize: '18px', fontWeight: '800', color: '#0F172A', margin: 0 },
   headerSub: { fontSize: '11px', color: '#64748B' },
-  guestNotice: { backgroundColor: '#FFF7ED', border: '1px solid #FFEDD5', color: '#C2410C', padding: '12px', borderRadius: '12px', fontSize: '11px', marginBottom: '16px', lineHeight: '1.4' },
-  formCard: { backgroundColor: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: '16px', padding: '18px', boxShadow: '0 2px 8px rgba(0,0,0,0.03)' },
-  formSection: { marginBottom: '18px' },
-  sectionLabel: { fontSize: '10px', fontWeight: '800', color: '#64748B', display: 'block', marginBottom: '8px', letterSpacing: '0.5px' },
-  categoryGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' },
-  catBtnActive: { display: 'flex', alignItems: 'center', gap: '8px', padding: '12px', backgroundColor: '#F0FDF4', border: '2px solid #0F766E', borderRadius: '10px', fontSize: '11px', fontWeight: '800', color: '#0F172A', cursor: 'pointer' },
-  catBtnInactive: { display: 'flex', alignItems: 'center', gap: '8px', padding: '12px', backgroundColor: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: '10px', fontSize: '11px', fontWeight: '600', color: '#475569', cursor: 'pointer' },
-  catDot: { width: '8px', height: '8px', borderRadius: '50%', flexShrink: 0 },
+  errorBox: { backgroundColor: '#FEF2F2', border: '1px solid #FCA5A5', color: '#991B1B', padding: '10px', borderRadius: '10px', fontSize: '11px', marginBottom: '14px' },
+  formCard: { backgroundColor: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: '16px', padding: '16px', boxShadow: '0 2px 6px rgba(0,0,0,0.02)' },
+  formSection: { marginBottom: '16px' },
+  sectionLabel: { fontSize: '10px', fontWeight: '800', color: '#64748B', display: 'block', marginBottom: '6px' },
+  textInput: { width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '12px', outline: 'none', boxSizing: 'border-box' },
   severityBar: { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '4px' },
-  sevActive: { padding: '10px 4px', color: '#FFFFFF', border: 'none', borderRadius: '8px', fontSize: '10px', fontWeight: '800', cursor: 'pointer', textAlign: 'center' },
-  sevInactive: { padding: '10px 4px', backgroundColor: '#F1F5F9', color: '#64748B', border: 'none', borderRadius: '8px', fontSize: '10px', fontWeight: '600', cursor: 'pointer', textAlign: 'center' },
-  labelRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' },
-  gpsBadgeBtn: { fontSize: '9px', fontWeight: '800', color: '#0F766E', backgroundColor: '#CCFBF1', border: '1px solid #99F6E4', padding: '3px 8px', borderRadius: '6px', cursor: 'pointer' },
-  multiTag: { fontSize: '9px', fontWeight: '800', color: '#0369A1', backgroundColor: '#E0F2FE', padding: '2px 6px', borderRadius: '4px' },
-  textInput: { width: '100%', padding: '11px', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '12px', outline: 'none', boxSizing: 'border-box' },
-  coordSubText: { fontSize: '10px', color: '#94A3B8', marginTop: '4px' },
-  photoDropzone: { border: '2px dashed #0F766E', backgroundColor: '#F0FDF4', padding: '16px', borderRadius: '12px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', cursor: 'pointer', textAlign: 'center' },
-  photoDropText: { fontSize: '12px', fontWeight: '800', color: '#0F766E' },
-  photoDropSub: { fontSize: '10px', color: '#64748B' },
-  attachedGallery: { marginTop: '10px', backgroundColor: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: '10px', padding: '10px' },
-  galleryHeader: { fontSize: '10px', fontWeight: '800', color: '#334155', marginBottom: '8px' },
-  photoItemRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#FFFFFF', border: '1px solid #CBD5E1', padding: '8px 10px', borderRadius: '6px', marginBottom: '6px', fontSize: '11px' },
-  photoItemName: { display: 'flex', alignItems: 'center', gap: '6px', fontWeight: '700', color: '#0F172A' },
-  photoIndexTag: { fontSize: '9px', fontWeight: '800', backgroundColor: '#E0F2FE', color: '#0369A1', padding: '1px 5px', borderRadius: '4px' },
-  removePhotoBtn: { backgroundColor: '#FEE2E2', color: '#991B1B', border: 'none', padding: '3px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: '800', cursor: 'pointer' },
-  textArea: { width: '100%', padding: '11px', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '12px', outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit' },
-  submitBtn: { width: '100%', padding: '14px', backgroundColor: '#0F766E', color: '#FFFFFF', border: 'none', borderRadius: '10px', fontSize: '13px', fontWeight: '800', cursor: 'pointer', marginTop: '10px' },
-  submitBtnDisabled: { width: '100%', padding: '14px', backgroundColor: '#94A3B8', color: '#FFFFFF', border: 'none', borderRadius: '10px', fontSize: '13px', fontWeight: '800', cursor: 'not-allowed', marginTop: '10px' }
+  sevActive: { padding: '8px 4px', color: '#FFFFFF', border: 'none', borderRadius: '8px', fontSize: '10px', fontWeight: '800', cursor: 'pointer' },
+  sevInactive: { padding: '8px 4px', backgroundColor: '#F1F5F9', color: '#64748B', border: 'none', borderRadius: '8px', fontSize: '10px', fontWeight: '600', cursor: 'pointer' },
+  photoDropzone: { border: '2px dashed #0F766E', backgroundColor: '#F0FDF4', padding: '14px', borderRadius: '12px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', cursor: 'pointer' },
+  photoDropText: { fontSize: '11px', fontWeight: '800', color: '#0F766E' },
+  photoListContainer: { marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '4px' },
+  photoCountHeader: { fontSize: '11px', fontWeight: '700', color: '#0F766E', marginBottom: '4px' },
+  photoChip: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#F1F5F9', padding: '6px 10px', borderRadius: '6px', fontSize: '11px', color: '#334155' },
+  removePhotoBtn: { border: 'none', backgroundColor: 'transparent', color: '#EF4444', fontWeight: '800', cursor: 'pointer' },
+  textArea: { width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '12px', outline: 'none', boxSizing: 'border-box' },
+  submitBtn: { width: '100%', padding: '12px', backgroundColor: '#0F766E', color: '#FFFFFF', border: 'none', borderRadius: '10px', fontSize: '13px', fontWeight: '800', cursor: 'pointer', marginTop: '8px' },
+  submitBtnDisabled: { width: '100%', padding: '12px', backgroundColor: '#94A3B8', color: '#FFFFFF', border: 'none', borderRadius: '10px', fontSize: '13px', fontWeight: '800', cursor: 'not-allowed', marginTop: '8px' }
 };
