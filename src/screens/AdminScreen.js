@@ -1,26 +1,49 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
 
+// Helper to safely extract clean Base64 / URL from raw string or JSON array
+const getCleanImageSrc = (raw) => {
+  if (!raw) return null;
+
+  if (typeof raw === 'string') {
+    const trimmed = raw.trim();
+    if (trimmed.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return typeof parsed[0] === 'string' ? parsed[0] : null;
+        }
+      } catch (e) {
+        // Fallthrough if parsing fails
+      }
+    }
+    return trimmed;
+  }
+
+  if (Array.isArray(raw) && raw.length > 0) {
+    return typeof raw[0] === 'string' ? raw[0] : null;
+  }
+
+  return null;
+};
+
 export default function AdminScreen({ onBack }) {
   const [activeTab, setActiveTab] = useState('REPORTS'); // 'REPORTS' | 'USERS' | 'MAP_ANALYTICS'
   const [reports, setReports] = useState([]);
   const [profiles, setProfiles] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
 
-  // Modals & Expanded View State
-  const [selectedReport, setSelectedReport] = useState(null); // Vertical Full Report Detail Modal
-  const [selectedUser, setSelectedUser] = useState(null);     // User Info Pop-up Modal
-  const [inspectImage, setInspectImage] = useState(null);     // Full Photo Zoom Modal
+  // Modals
+  const [selectedReport, setSelectedReport] = useState(null);
+  const [selectedUser, setSelectedUser] = useState(null);
+  const [inspectImage, setInspectImage] = useState(null);
 
-  // User Filter Sub-Tabs
-  const [userFilterTab, setUserFilterTab] = useState('ALL'); // 'ALL' | 'VERIFIED' | 'GUEST' | 'DELETED'
+  const [userFilterTab, setUserFilterTab] = useState('ALL');
 
   useEffect(() => {
     fetchAdminData();
   }, []);
 
   const fetchAdminData = async () => {
-    setIsLoading(true);
     try {
       const { data: repData } = await supabase
         .from('reports')
@@ -36,8 +59,6 @@ export default function AdminScreen({ onBack }) {
       if (profData) setProfiles(profData);
     } catch (err) {
       console.error('Admin fetch error:', err.message);
-    } finally {
-      setIsLoading(false);
     }
   };
 
@@ -50,7 +71,7 @@ export default function AdminScreen({ onBack }) {
 
       if (error) throw error;
 
-      alert(`Report ${reportId} stage updated to: ${newStatus}`);
+      alert(`✓ Report ${reportId} operational stage updated to: ${newStatus}`);
       if (selectedReport && selectedReport.id === reportId) {
         setSelectedReport({ ...selectedReport, status: newStatus });
       }
@@ -79,7 +100,6 @@ export default function AdminScreen({ onBack }) {
     }
   };
 
-  // Calculate Monthly Submission Trend from Actual Supabase Database Timestamps
   const getMonthlySubmissionCounts = () => {
     const monthCounts = { Jan: 0, Feb: 0, Mar: 0, Apr: 0, May: 0, Jun: 0, Jul: 0, Aug: 0, Sep: 0, Oct: 0, Nov: 0, Dec: 0 };
     const monthKeys = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -94,10 +114,10 @@ export default function AdminScreen({ onBack }) {
       }
     });
 
-    return monthKeys.map((m) => ({ month: m, count: monthCounts[m] }));
+    return Object.keys(monthCounts).map((m) => ({ month: m, count: monthCounts[m] }));
   };
 
-  const approvedReports = reports.filter((r) => r.status === 'APPROVED');
+  const approvedReports = reports.filter((r) => r.status === 'APPROVED' || r.status === 'DISPATCHED');
   const monthlyData = getMonthlySubmissionCounts();
   const maxMonthlyCount = Math.max(...monthlyData.map((d) => d.count), 5);
 
@@ -109,20 +129,25 @@ export default function AdminScreen({ onBack }) {
     return true;
   });
 
+  const selectedReportPhoto = selectedReport ? getCleanImageSrc(selectedReport.proof_photos || null) : null;
+  const selectedUserProofPhoto = selectedUser
+    ? getCleanImageSrc(selectedUser.id_proof_photo || selectedUser.proof_photo || selectedUser.proofPhotos || null)
+    : null;
+
   return (
     <div style={styles.container}>
-      {/* Portal Header */}
+      {/* Header */}
       <div style={styles.navHeader}>
         <button style={styles.backBtn} onClick={onBack}>
           &lt; Back
         </button>
         <div>
           <h2 style={styles.headerTitle}>CDRRMO Command Portal</h2>
-          <div style={styles.headerSub}>Admin Operations & Moderation</div>
+          <div style={styles.headerSub}>Admin Operations & Process Control</div>
         </div>
       </div>
 
-      {/* Primary Navigation Tabs */}
+      {/* Primary Tabs */}
       <div style={styles.tabRow}>
         <button
           style={activeTab === 'REPORTS' ? styles.tabActive : styles.tabInactive}
@@ -134,49 +159,61 @@ export default function AdminScreen({ onBack }) {
           style={activeTab === 'USERS' ? styles.tabActive : styles.tabInactive}
           onClick={() => setActiveTab('USERS')}
         >
-          User Moderation ({profiles.length})
+          Users ({profiles.length})
         </button>
         <button
           style={activeTab === 'MAP_ANALYTICS' ? styles.tabActive : styles.tabInactive}
           onClick={() => setActiveTab('MAP_ANALYTICS')}
         >
-          Map & Analytics
+          Map & Trends
         </button>
       </div>
 
-      {/* 1. REPORT MODERATION TAB */}
+      {/* 1. REPORT PROCESS STREAM */}
       {activeTab === 'REPORTS' && (
         <div style={styles.sectionStack}>
-          <div style={styles.sectionTitle}>Incoming Reports (Click card for full details)</div>
-          
+          <div style={styles.sectionTitle}>Incoming Reports Stream (Click card to change stage)</div>
+
           {reports.length === 0 ? (
             <div style={styles.emptyCard}>No hazard reports submitted in database.</div>
           ) : (
-            reports.map((rep) => (
-              <div
-                key={rep.id || rep.report_id || rep._id || rep.ticket_no || 'report'}
-                style={styles.compactReportCard}
-                onClick={() => setSelectedReport(rep)}
-              >
-                <div style={styles.compactHeaderRow}>
-                  <span style={styles.ticketBadge}>{rep.ticket_no || rep.id || 'TICKET'}</span>
-                  <span style={getStatusBadgeStyle(rep.status)}>{rep.status || 'PENDING'}</span>
+            reports.map((rep, index) => {
+              const photoSrc = getCleanImageSrc(rep.proof_photos || null);
+
+              return (
+                <div
+                  key={rep.id || rep.ticket_no || `${rep.device_id || 'device'}-${index}`}
+                  style={styles.compactReportCard}
+                  onClick={() => setSelectedReport(rep)}
+                >
+                  <div style={styles.compactHeaderRow}>
+                    <span style={styles.ticketBadge}>{rep.ticket_no || rep.id || 'TICKET'}</span>
+                    <span style={getStatusBadgeStyle(rep.status)}>{rep.status || 'PENDING'}</span>
+                  </div>
+                  <h4 style={styles.compactReportTitle}>{rep.hazard_type || rep.category || 'Hazard Alert'}</h4>
+                  <p style={styles.compactReportDesc}>
+                    {rep.description ? (rep.description.length > 65 ? `${rep.description.substring(0, 65)}...` : rep.description) : 'No description provided.'}
+                  </p>
+
+                  {/* Thumbnail Preview in Compact List */}
+                  {photoSrc && (
+                    <div style={styles.compactPhotoBar}>
+                      <img src={photoSrc} alt="Evidence Thumb" style={styles.compactThumbImg} />
+                      <span style={styles.compactPhotoLabel}>📷 Evidence Attached (Tap to Inspect)</span>
+                    </div>
+                  )}
+
+                  <div style={styles.compactTapHint}>Tap to view full info & update operational stage &rarr;</div>
                 </div>
-                <h4 style={styles.compactReportTitle}>{rep.hazard_type || rep.category || 'Hazard Alert'}</h4>
-                <p style={styles.compactReportDesc}>
-                  {rep.description ? (rep.description.length > 60 ? `${rep.description.substring(0, 60)}...` : rep.description) : 'No description provided.'}
-                </p>
-                <div style={styles.compactTapHint}>Tap to view all submitted info & judge stage &rarr;</div>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
       )}
 
-      {/* 2. USER MODERATION TAB */}
+      {/* 2. USER MODERATION */}
       {activeTab === 'USERS' && (
         <div style={styles.sectionStack}>
-          {/* Sub Filter Chips */}
           <div style={styles.subTabRow}>
             {['ALL', 'VERIFIED', 'GUEST', 'DELETED'].map((f) => (
               <button
@@ -199,7 +236,7 @@ export default function AdminScreen({ onBack }) {
 
                 return (
                   <div
-                    key={u.device_id || u.username || 'user'}
+                    key={u.device_id || u.username || u.id || 'user'}
                     style={styles.compactUserRow}
                     onClick={() => setSelectedUser(u)}
                   >
@@ -212,10 +249,8 @@ export default function AdminScreen({ onBack }) {
                       <span style={isVerified ? styles.badgeGreen : styles.badgeOrange}>
                         {isVerified ? 'VERIFIED' : 'GUEST'}
                       </span>
-                      <span style={styles.activityDotText}>• Online Activity</span>
-                      <span style={styles.reportCountText}>
-                        Reports: {userReports.length}
-                      </span>
+                      <span style={styles.activityDotText}>• Active</span>
+                      <span style={styles.reportCountText}>Reports: {userReports.length}</span>
                     </div>
                   </div>
                 );
@@ -225,27 +260,25 @@ export default function AdminScreen({ onBack }) {
         </div>
       )}
 
-      {/* 3. COMBINED DANGER MAP & REAL ANALYTICS TAB */}
+      {/* 3. DANGER MAP & REAL MONTHLY ANALYTICS */}
       {activeTab === 'MAP_ANALYTICS' && (
         <div style={styles.sectionStack}>
-          {/* Citizen-style Approved Danger Map */}
           <div style={styles.sectionTitle}>Live Approved Danger Zone Map (Citizen View)</div>
           <div style={styles.mapCard}>
             <div style={styles.mapHeaderRow}>
-              <span style={styles.mapScopeTag}>Showing {approvedReports.length} Approved Hazards</span>
+              <span style={styles.mapScopeTag}>Showing {approvedReports.length} Approved / Dispatched Hazards</span>
             </div>
             <iframe
               title="Admin Danger Map View"
               width="100%"
-              height="200"
+              height="180"
               frameBorder="0"
               scrolling="no"
-              src="[suspicious link removed]13.7565,121.0583&t=m&z=14&ie=UTF8&iwloc=&output=embed"
+              src="https://www.openstreetmap.org/export/embed.html?bbox=120.93%2C13.64%2C121.12%2C13.80&layer=mapnik"
               style={styles.mapIframe}
             ></iframe>
           </div>
 
-          {/* Real Monthly Trends Chart */}
           <div style={styles.sectionTitle}>Real Monthly Submission Trends (Live Database)</div>
           <div style={styles.chartCard}>
             <div style={styles.chartTitleRow}>
@@ -271,12 +304,12 @@ export default function AdminScreen({ onBack }) {
         </div>
       )}
 
-      {/* VERTICAL FULL REPORT DETAIL MODAL */}
+      {/* VERTICAL REPORT DETAIL & OPERATIONAL STAGE CONTROL MODAL */}
       {selectedReport && (
         <div style={styles.modalBackdrop} onClick={() => setSelectedReport(null)}>
           <div style={styles.modalContent} onClick={(e) => e.stopPropagation()}>
             <div style={styles.modalHeader}>
-              <span style={styles.modalTitle}>Full Report Details</span>
+              <span style={styles.modalTitle}>Full Hazard Report Details</span>
               <button style={styles.modalCloseBtn} onClick={() => setSelectedReport(null)}>Close X</button>
             </div>
 
@@ -284,6 +317,11 @@ export default function AdminScreen({ onBack }) {
               <div style={styles.detailItem}>
                 <span style={styles.detailLabel}>TICKET REFERENCE NUMBER</span>
                 <span style={styles.detailValueBold}>{selectedReport.ticket_no || selectedReport.id || 'N/A'}</span>
+              </div>
+
+              <div style={styles.detailItem}>
+                <span style={styles.detailLabel}>CURRENT STAGE STATUS</span>
+                <span style={getStatusBadgeStyle(selectedReport.status)}>{selectedReport.status || 'PENDING'}</span>
               </div>
 
               <div style={styles.detailItem}>
@@ -311,14 +349,15 @@ export default function AdminScreen({ onBack }) {
                 <p style={styles.detailTextBody}>{selectedReport.description || 'No description provided.'}</p>
               </div>
 
-              {selectedReport.proof_photos && (
+              {/* Clean Image Rendering in Modal */}
+              {selectedReportPhoto && (
                 <div style={styles.detailItem}>
-                  <span style={styles.detailLabel}>ATTACHED EVIDENCE PHOTO</span>
+                  <span style={styles.detailLabel}>ATTACHED EVIDENCE PHOTO (CLICK TO ZOOM)</span>
                   <img
-                    src={selectedReport.proof_photos}
+                    src={selectedReportPhoto}
                     alt="Submitted Evidence"
                     style={styles.detailPhotoThumb}
-                    onClick={() => setInspectImage(selectedReport.proof_photos)}
+                    onClick={() => setInspectImage(selectedReportPhoto)}
                   />
                 </div>
               )}
@@ -333,21 +372,33 @@ export default function AdminScreen({ onBack }) {
                 <span style={styles.detailValue}>{selectedReport.created_at ? new Date(selectedReport.created_at).toLocaleString() : 'Recently'}</span>
               </div>
 
-              {/* Stage Judgment Actions */}
+              {/* STAGE PROCESS CONTROL BUTTONS */}
               <div style={styles.stageJudgeBox}>
-                <span style={styles.stageJudgeTitle}>PROCEED TO NEXT OPERATIONAL STAGE:</span>
-                <div style={styles.stageBtnRow}>
+                <span style={styles.stageJudgeTitle}>PROCEED TO OPERATIONAL STAGE:</span>
+                <div style={styles.stageBtnGrid}>
                   <button
-                    style={styles.btnStageApprove}
-                    onClick={() => handleUpdateReportStatus(selectedReport.id, 'APPROVED')}
+                    style={styles.btnStagePending}
+                    onClick={() => handleUpdateReportStatus(selectedReport.id, 'PENDING')}
                   >
-                    Approve (Map Pin)
+                    1. Pending
                   </button>
                   <button
                     style={styles.btnStageInvestigate}
                     onClick={() => handleUpdateReportStatus(selectedReport.id, 'UNDER_INVESTIGATION')}
                   >
-                    Investigate
+                    2. Investigate
+                  </button>
+                  <button
+                    style={styles.btnStageDispatch}
+                    onClick={() => handleUpdateReportStatus(selectedReport.id, 'DISPATCHED')}
+                  >
+                    3. Dispatch Unit
+                  </button>
+                  <button
+                    style={styles.btnStageResolve}
+                    onClick={() => handleUpdateReportStatus(selectedReport.id, 'RESOLVED')}
+                  >
+                    4. Mark Resolved
                   </button>
                   <button
                     style={styles.btnStageReject}
@@ -368,12 +419,12 @@ export default function AdminScreen({ onBack }) {
         </div>
       )}
 
-      {/* USER DETAIL POP-UP MODAL */}
+      {/* USER DETAIL MODAL */}
       {selectedUser && (
         <div style={styles.modalBackdrop} onClick={() => setSelectedUser(null)}>
           <div style={styles.modalContent} onClick={(e) => e.stopPropagation()}>
             <div style={styles.modalHeader}>
-              <span style={styles.modalTitle}>User Account & Submissions</span>
+              <span style={styles.modalTitle}>User Account Details</span>
               <button style={styles.modalCloseBtn} onClick={() => setSelectedUser(null)}>Close X</button>
             </div>
 
@@ -390,7 +441,7 @@ export default function AdminScreen({ onBack }) {
 
               <div style={styles.detailItem}>
                 <span style={styles.detailLabel}>MOBILE PHONE</span>
-                <span style={styles.detailValue}>{selectedUser.mobile_phone || 'N/A'}</span>
+                <span style={styles.detailValue}>{selectedUser.phone_number || selectedUser.phone || 'N/A'}</span>
               </div>
 
               <div style={styles.detailItem}>
@@ -399,7 +450,7 @@ export default function AdminScreen({ onBack }) {
               </div>
 
               <div style={styles.detailItem}>
-                <span style={styles.detailLabel}>DEVICE ID FINGERPRINT</span>
+                <span style={styles.detailLabel}>DEVICE FINGERPRINT</span>
                 <span style={styles.detailValue}>{selectedUser.device_id}</span>
               </div>
 
@@ -408,31 +459,23 @@ export default function AdminScreen({ onBack }) {
                 <span style={styles.detailValueBadge}>{selectedUser.verification_status || 'GUEST / PENDING'}</span>
               </div>
 
-              {selectedUser.id_proof_photo && (
+              {selectedUserProofPhoto && (
                 <div style={styles.detailItem}>
-                  <span style={styles.detailLabel}>ID PROOF PHOTO</span>
+                  <span style={styles.detailLabel}>ID PROOF PHOTO (CLICK TO ZOOM)</span>
                   <img
-                    src={selectedUser.id_proof_photo}
+                    src={selectedUserProofPhoto}
                     alt="User ID Proof"
                     style={styles.detailPhotoThumb}
-                    onClick={() => setInspectImage(selectedUser.id_proof_photo)}
+                    onClick={() => setInspectImage(selectedUserProofPhoto)}
                   />
                 </div>
               )}
 
-              <div style={styles.detailItem}>
-                <span style={styles.detailLabel}>SUBMITTED HAZARD REPORTS</span>
-                <span style={styles.detailValue}>
-                  {reports.filter((r) => r.device_id === selectedUser.device_id).length} Reports Total
-                </span>
-              </div>
-
-              {/* Moderation Actions */}
               <div style={styles.stageJudgeBox}>
                 <span style={styles.stageJudgeTitle}>VERIFICATION ACTIONS:</span>
                 <div style={styles.stageBtnRow}>
                   <button
-                    style={styles.btnStageApprove}
+                    style={styles.btnStageResolve}
                     onClick={() => handleUpdateUserStatus(selectedUser.device_id, 'VERIFIED')}
                   >
                     Approve Citizen
@@ -450,15 +493,19 @@ export default function AdminScreen({ onBack }) {
         </div>
       )}
 
-      {/* FULL PHOTO ZOOM MODAL */}
+      {/* CRISP HIGH-RESOLUTION PHOTO INSPECTION ZOOM MODAL */}
       {inspectImage && (
-        <div style={styles.modalBackdrop} onClick={() => setInspectImage(null)}>
-          <div style={styles.modalContent} onClick={(e) => e.stopPropagation()}>
-            <div style={styles.modalHeader}>
-              <span style={styles.modalTitle}>Inspect Full Image</span>
-              <button style={styles.modalCloseBtn} onClick={() => setInspectImage(null)}>Close X</button>
+        <div style={styles.imageZoomBackdrop} onClick={() => setInspectImage(null)}>
+          <div style={styles.imageZoomContent} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.imageZoomHeader}>
+              <span style={styles.imageZoomTitle}>Photo Evidence Verification (1st Observation)</span>
+              <button style={styles.imageZoomCloseBtn} onClick={() => setInspectImage(null)}>
+                Close [X]
+              </button>
             </div>
-            <img src={inspectImage} alt="Full Zoom Evidence" style={styles.fullModalImg} />
+            <div style={styles.imageZoomBody}>
+              <img src={inspectImage} alt="Full Zoom Evidence" style={styles.crispZoomImg} />
+            </div>
           </div>
         </div>
       )}
@@ -468,7 +515,8 @@ export default function AdminScreen({ onBack }) {
 
 function getStatusBadgeStyle(status) {
   const s = (status || 'PENDING').toUpperCase();
-  if (s === 'APPROVED') return styles.badgeGreen;
+  if (s === 'RESOLVED') return styles.badgeGreen;
+  if (s === 'DISPATCHED') return styles.badgeTeal;
   if (s === 'UNDER_INVESTIGATION') return styles.badgeYellow;
   if (s === 'REJECTED' || s === 'DELETED') return styles.badgeRed;
   return styles.badgeOrange;
@@ -491,6 +539,9 @@ const styles = {
   ticketBadge: { fontSize: '9px', fontWeight: '800', backgroundColor: '#CCFBF1', color: '#0F766E', padding: '2px 6px', borderRadius: '4px' },
   compactReportTitle: { fontSize: '13px', fontWeight: '800', color: '#0F172A', margin: '2px 0' },
   compactReportDesc: { fontSize: '11px', color: '#475569', margin: '2px 0 6px 0' },
+  compactPhotoBar: { display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#F0FDF4', border: '1px solid #A7F3D0', padding: '4px 8px', borderRadius: '6px', marginBottom: '6px' },
+  compactThumbImg: { width: '32px', height: '32px', objectFit: 'cover', borderRadius: '4px', border: '1px solid #0F766E' },
+  compactPhotoLabel: { fontSize: '9px', fontWeight: '800', color: '#0F766E' },
   compactTapHint: { fontSize: '9px', fontWeight: '800', color: '#0F766E' },
   subTabRow: { display: 'flex', gap: '4px', marginBottom: '8px' },
   subTabActive: { padding: '4px 8px', backgroundColor: '#0F766E', color: '#FFFFFF', border: 'none', borderRadius: '4px', fontSize: '9px', fontWeight: '800', cursor: 'pointer' },
@@ -504,6 +555,7 @@ const styles = {
   activityDotText: { fontSize: '9px', color: '#166534', fontWeight: '700' },
   reportCountText: { fontSize: '9px', color: '#64748B' },
   badgeGreen: { fontSize: '8px', fontWeight: '800', backgroundColor: '#DCFCE7', color: '#166534', padding: '2px 5px', borderRadius: '4px' },
+  badgeTeal: { fontSize: '8px', fontWeight: '800', backgroundColor: '#CCFBF1', color: '#0F766E', padding: '2px 5px', borderRadius: '4px' },
   badgeOrange: { fontSize: '8px', fontWeight: '800', backgroundColor: '#FFEDD5', color: '#C2410C', padding: '2px 5px', borderRadius: '4px' },
   badgeYellow: { fontSize: '8px', fontWeight: '800', backgroundColor: '#FEF3C7', color: '#92400E', padding: '2px 5px', borderRadius: '4px' },
   badgeRed: { fontSize: '8px', fontWeight: '800', backgroundColor: '#FEE2E2', color: '#991B1B', padding: '2px 5px', borderRadius: '4px' },
@@ -532,13 +584,24 @@ const styles = {
   detailValue: { fontSize: '11px', color: '#0F172A', fontWeight: '600' },
   detailValueBadge: { fontSize: '10px', fontWeight: '800', color: '#DC2626' },
   detailTextBody: { fontSize: '11px', color: '#334155', margin: '2px 0 0 0', lineHeight: '1.3' },
-  detailPhotoThumb: { width: '100px', height: '75px', objectFit: 'cover', borderRadius: '6px', border: '2px solid #0F766E', marginTop: '4px', cursor: 'pointer' },
+  detailPhotoThumb: { width: '120px', height: '90px', objectFit: 'cover', borderRadius: '8px', border: '2px solid #0F766E', marginTop: '6px', cursor: 'pointer' },
   stageJudgeBox: { marginTop: '8px', backgroundColor: '#F8FAFC', border: '1px solid #CBD5E1', padding: '10px', borderRadius: '8px' },
   stageJudgeTitle: { fontSize: '9px', fontWeight: '800', color: '#475569', display: 'block', marginBottom: '6px' },
+  stageBtnGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' },
   stageBtnRow: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' },
-  btnStageApprove: { padding: '8px', backgroundColor: '#166534', color: '#FFFFFF', border: 'none', borderRadius: '6px', fontSize: '10px', fontWeight: '800', cursor: 'pointer' },
-  btnStageInvestigate: { padding: '8px', backgroundColor: '#D97706', color: '#FFFFFF', border: 'none', borderRadius: '6px', fontSize: '10px', fontWeight: '800', cursor: 'pointer' },
-  btnStageReject: { padding: '8px', backgroundColor: '#DC2626', color: '#FFFFFF', border: 'none', borderRadius: '6px', fontSize: '10px', fontWeight: '800', cursor: 'pointer' },
-  btnStageDelete: { padding: '8px', backgroundColor: '#475569', color: '#FFFFFF', border: 'none', borderRadius: '6px', fontSize: '10px', fontWeight: '800', cursor: 'pointer' },
-  fullModalImg: { width: '100%', height: 'auto', borderRadius: '8px', border: '1px solid #CBD5E1' }
+  btnStagePending: { padding: '7px', backgroundColor: '#FFEDD5', border: '1px solid #FDBA74', color: '#C2410C', borderRadius: '6px', fontSize: '10px', fontWeight: '800', cursor: 'pointer' },
+  btnStageInvestigate: { padding: '7px', backgroundColor: '#FEF3C7', border: '1px solid #FDE047', color: '#92400E', borderRadius: '6px', fontSize: '10px', fontWeight: '800', cursor: 'pointer' },
+  btnStageDispatch: { padding: '7px', backgroundColor: '#CCFBF1', border: '1px solid #99F6E4', color: '#0F766E', borderRadius: '6px', fontSize: '10px', fontWeight: '800', cursor: 'pointer' },
+  btnStageResolve: { padding: '7px', backgroundColor: '#166534', color: '#FFFFFF', border: 'none', borderRadius: '6px', fontSize: '10px', fontWeight: '800', cursor: 'pointer' },
+  btnStageReject: { padding: '7px', backgroundColor: '#DC2626', color: '#FFFFFF', border: 'none', borderRadius: '6px', fontSize: '10px', fontWeight: '800', cursor: 'pointer' },
+  btnStageDelete: { padding: '7px', backgroundColor: '#475569', color: '#FFFFFF', border: 'none', borderRadius: '6px', fontSize: '10px', fontWeight: '800', cursor: 'pointer' },
+  
+  // High Resolution Inspection Zoom Modal Styles
+  imageZoomBackdrop: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(15, 23, 42, 0.92)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 9999, padding: '16px' },
+  imageZoomContent: { backgroundColor: '#1E293B', borderRadius: '12px', padding: '16px', maxWidth: '90vw', maxHeight: '90vh', display: 'flex', flexDirection: 'column', width: '100%' },
+  imageZoomHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' },
+  imageZoomTitle: { fontSize: '12px', fontWeight: '800', color: '#F8FAFC' },
+  imageZoomCloseBtn: { backgroundColor: '#DC2626', color: '#FFFFFF', border: 'none', padding: '6px 12px', borderRadius: '6px', fontSize: '11px', fontWeight: '800', cursor: 'pointer' },
+  imageZoomBody: { display: 'flex', justifyContent: 'center', alignItems: 'center', flex: 1, overflow: 'hidden' },
+  crispZoomImg: { maxWidth: '100%', maxHeight: '75vh', objectFit: 'contain', borderRadius: '8px', border: '2px solid #0F766E' }
 };
