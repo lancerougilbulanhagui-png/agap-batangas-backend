@@ -2,18 +2,17 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
 
 export default function AdminScreen({ onBack }) {
-  // 5 Main Navigation Tabs as requested
-  const [activeTab, setActiveTab] = useState('SUBMITTED_REPORTS'); 
-  // Tabs: 'SUBMITTED_REPORTS' | 'ACTIVE_TRACKER' | 'USER_HANDLING' | 'REJECTED_DATA' | 'MAP_ANALYTICS'
+  // Navigation: 'DASHBOARD' | 'SUBMITTED' | 'TRACKER' | 'USERS' | 'REJECTED' | 'ANALYTICS'
+  const [currentView, setCurrentView] = useState('DASHBOARD');
 
   const [reports, setReports] = useState([]);
   const [profiles, setProfiles] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Analytics Calendar Date State (YYYY-MM)
+  // Analytics Month Filter (YYYY-MM)
   const [selectedMonth, setSelectedMonth] = useState('2026-10');
 
-  // Modals & Lightbox Overlays
+  // Modals & Overlays
   const [selectedReport, setSelectedReport] = useState(null);
   const [selectedUser, setSelectedUser] = useState(null);
   const [inspectImage, setInspectImage] = useState(null);
@@ -42,7 +41,7 @@ export default function AdminScreen({ onBack }) {
     }
   };
 
-  // Update Report Operational Stage
+  // Change Operational Stage
   const handleUpdateReportStatus = async (reportId, newStatus) => {
     try {
       const { error } = await supabase
@@ -58,15 +57,15 @@ export default function AdminScreen({ onBack }) {
       }
       fetchAdminData();
     } catch (err) {
-      alert(`Update error: ${err.message}`);
+      alert(`Update failed: ${err.message}`);
     }
   };
 
-  // 1-Click Permanent Purge of Rejected Data (2nd Verification)
+  // 1-Click Permanent Delete for Rejected Data (2nd Verification Check)
   const handlePurgeAllRejectedData = async () => {
     const rejectedList = reports.filter((r) => ['REJECTED', 'DELETED'].includes((r.status || '').toUpperCase()));
     if (rejectedList.length === 0) {
-      alert('No rejected or deleted reports to purge.');
+      alert('No rejected records found in database.');
       return;
     }
 
@@ -88,7 +87,7 @@ export default function AdminScreen({ onBack }) {
     }
   };
 
-  // Update User Status (Penalty / Ban Device ID)
+  // User Moderation (Penalty & Device Ban)
   const handleUpdateUserStatus = async (deviceId, newStatus, reason = '') => {
     try {
       const { error } = await supabase
@@ -108,7 +107,7 @@ export default function AdminScreen({ onBack }) {
     }
   };
 
-  // Categorize Reports into Workflow Stages
+  // Filtered Lists
   const submittedReports = reports.filter((r) => 
     (r.status || 'PENDING').toUpperCase() === 'PENDING' || 
     (r.status || '').toUpperCase() === 'UNDER_INVESTIGATION'
@@ -122,19 +121,16 @@ export default function AdminScreen({ onBack }) {
     ['REJECTED', 'DELETED'].includes((r.status || '').toUpperCase())
   );
 
-  // User Categorization & Sorting
-  // Verified Citizens: Sorted Alphabetically by username/full_name
+  // User Sorting & Categorization
   const verifiedCitizens = profiles
     .filter((p) => (p.verification_status || '').toUpperCase() === 'VERIFIED')
     .sort((a, b) => (a.username || a.full_name || '').localeCompare(b.username || b.full_name || ''));
 
-  // Guests: Separated & Numbered from 1 to N
   const guestUsers = profiles
     .filter((p) => (p.verification_status || 'GUEST').toUpperCase() !== 'VERIFIED');
 
-  // Calendar Analytics Calculations for Selected Month
+  // Calendar Analytics Daily Breakdown
   const getCalendarMonthlyChartData = () => {
-    // Generate days 1..31 for selected YYYY-MM
     const [year, month] = selectedMonth.split('-').map(Number);
     const daysInMonth = new Date(year, month, 0).getDate();
     const dayCounts = Array.from({ length: daysInMonth }, (_, i) => ({ day: i + 1, count: 0 }));
@@ -175,51 +171,72 @@ export default function AdminScreen({ onBack }) {
 
   return (
     <div style={styles.container}>
-      {/* Navigation Header */}
+      {/* Header */}
       <div style={styles.navHeader}>
-        <button style={styles.backBtn} onClick={onBack}>&lt; Back</button>
+        <button 
+          style={styles.backBtn} 
+          onClick={currentView === 'DASHBOARD' ? onBack : () => setCurrentView('DASHBOARD')}
+        >
+          &lt; {currentView === 'DASHBOARD' ? 'Exit Admin' : 'Admin Dashboard'}
+        </button>
         <div>
-          <h2 style={styles.headerTitle}>CDRRMO Command Portal</h2>
-          <div style={styles.headerSub}>Admin Operational Dashboard</div>
+          <h2 style={styles.headerTitle}>CDRRMO Command Center</h2>
+          <div style={styles.headerSub}>Project AGAP Admin Portal</div>
         </div>
       </div>
 
-      {/* 5 Main Dashboard Navigation Tabs */}
-      <div style={styles.mainTabRow}>
-        <button
-          style={activeTab === 'SUBMITTED_REPORTS' ? styles.tabActive : styles.tabInactive}
-          onClick={() => setActiveTab('SUBMITTED_REPORTS')}
-        >
-          📥 Reports ({submittedReports.length})
-        </button>
-        <button
-          style={activeTab === 'ACTIVE_TRACKER' ? styles.tabActive : styles.tabInactive}
-          onClick={() => setActiveTab('ACTIVE_TRACKER')}
-        >
-          🚨 Tracker ({activeTrackerReports.length})
-        </button>
-        <button
-          style={activeTab === 'USER_HANDLING' ? styles.tabActive : styles.tabInactive}
-          onClick={() => setActiveTab('USER_HANDLING')}
-        >
-          👤 Users ({profiles.length})
-        </button>
-        <button
-          style={activeTab === 'REJECTED_DATA' ? styles.tabActive : styles.tabInactive}
-          onClick={() => setActiveTab('REJECTED_DATA')}
-        >
-          🗑️ Rejected ({rejectedDataReports.length})
-        </button>
-        <button
-          style={activeTab === 'MAP_ANALYTICS' ? styles.tabActive : styles.tabInactive}
-          onClick={() => setActiveTab('MAP_ANALYTICS')}
-        >
-          📊 Map & Trends
-        </button>
-      </div>
+      {/* 1. MAIN ADMIN DASHBOARD MENU (SIMILAR TO CITIZEN DASHBOARD) */}
+      {currentView === 'DASHBOARD' && (
+        <div style={styles.dashboardGrid}>
+          <div style={styles.moduleCard} onClick={() => setCurrentView('SUBMITTED')}>
+            <div style={styles.moduleCardHeader}>
+              <span style={styles.moduleIcon}>📥</span>
+              <span style={styles.countBadge}>{submittedReports.length} Pending</span>
+            </div>
+            <h3 style={styles.moduleTitle}>Submitted Reports Database</h3>
+            <p style={styles.moduleSub}>Review incoming reports (#AGAP-2026-0001+), inspect photos & triage (Investigate / Approve / Reject).</p>
+          </div>
 
-      {/* TAB 1: SUBMIT REPORTS DATABASE & TRIAGE */}
-      {activeTab === 'SUBMITTED_REPORTS' && (
+          <div style={styles.moduleCard} onClick={() => setCurrentView('TRACKER')}>
+            <div style={styles.moduleCardHeader}>
+              <span style={styles.moduleIcon}>🚨</span>
+              <span style={styles.countBadge}>{activeTrackerReports.length} Active</span>
+            </div>
+            <h3 style={styles.moduleTitle}>Active Hazard Tracker</h3>
+            <p style={styles.moduleSub}>Manage operational progression: Approved &rarr; Dispatched &rarr; In Progress &rarr; Resolved.</p>
+          </div>
+
+          <div style={styles.moduleCard} onClick={() => setCurrentView('USERS')}>
+            <div style={styles.moduleCardHeader}>
+              <span style={styles.moduleIcon}>👤</span>
+              <span style={styles.countBadge}>{profiles.length} Users</span>
+            </div>
+            <h3 style={styles.moduleTitle}>User & Device Handling</h3>
+            <p style={styles.moduleSub}>Alphabetical Verified Citizens, numbered Guest list (#1 to #N), Issue Penalties & Ban Devices.</p>
+          </div>
+
+          <div style={styles.moduleCard} onClick={() => setCurrentView('REJECTED')}>
+            <div style={styles.moduleCardHeader}>
+              <span style={styles.moduleIcon}>🗑️</span>
+              <span style={styles.countBadge}>{rejectedDataReports.length} Archived</span>
+            </div>
+            <h3 style={styles.moduleTitle}>Deleted / Rejected Data</h3>
+            <p style={styles.moduleSub}>Archive of rejected submissions with 1-Click Permanent Delete (2nd verification check).</p>
+          </div>
+
+          <div style={styles.moduleCard} onClick={() => setCurrentView('ANALYTICS')}>
+            <div style={styles.moduleCardHeader}>
+              <span style={styles.moduleIcon}>📊</span>
+              <span style={styles.countBadge}>Live Map</span>
+            </div>
+            <h3 style={styles.moduleTitle}>Map & Calendar Analytics</h3>
+            <p style={styles.moduleSub}>100% clean live approved hazard map & integrated calendar month trend graphs.</p>
+          </div>
+        </div>
+      )}
+
+      {/* 2. SUBMITTED REPORTS DATABASE */}
+      {currentView === 'SUBMITTED' && (
         <div style={styles.sectionStack}>
           <div style={styles.sectionTitle}>Submit Reports Database (Awaiting Triage)</div>
           {isLoading ? (
@@ -230,19 +247,19 @@ export default function AdminScreen({ onBack }) {
             submittedReports.map((rep) => {
               const photoList = parsePhotos(rep.proof_photos || rep.photos);
               return (
-                <div key={rep.id} style={styles.reportCard} onClick={() => setSelectedReport(rep)}>
+                <div key={rep.id} style={styles.itemCard} onClick={() => setSelectedReport(rep)}>
                   <div style={styles.cardHeaderRow}>
                     <span style={styles.ticketBadge}>{rep.id || rep.ticket_no || '#AGAP-2026-0001'}</span>
                     <span style={styles.badgeOrange}>{rep.status || 'PENDING'}</span>
                   </div>
-                  <h4 style={styles.reportTitle}>{rep.hazard_type || rep.category || rep.title || 'Hazard Report'}</h4>
-                  <p style={styles.reportDesc}>📍 {rep.location || 'Location Not Specified'}</p>
+                  <h4 style={styles.itemTitle}>{rep.hazard_type || rep.category || rep.title || 'Hazard Report'}</h4>
+                  <p style={styles.itemSub}>📍 {rep.location || 'Location Not Specified'}</p>
                   
                   {photoList.length > 0 && (
                     <div style={styles.photoCountNotice}>📷 {photoList.length} Evidence Photo(s) Attached (Tap to inspect)</div>
                   )}
 
-                  <div style={styles.triageActionRow}>
+                  <div style={styles.actionRow}>
                     <button
                       style={styles.btnInvestigate}
                       onClick={(e) => { e.stopPropagation(); handleUpdateReportStatus(rep.id, 'UNDER_INVESTIGATION'); }}
@@ -269,23 +286,22 @@ export default function AdminScreen({ onBack }) {
         </div>
       )}
 
-      {/* TAB 2: ACTIVE TRACKER (APPROVED REPORTS WORKFLOW) */}
-      {activeTab === 'ACTIVE_TRACKER' && (
+      {/* 3. ACTIVE HAZARD TRACKER */}
+      {currentView === 'TRACKER' && (
         <div style={styles.sectionStack}>
           <div style={styles.sectionTitle}>Active Approved Hazard Tracker</div>
           {activeTrackerReports.length === 0 ? (
-            <div style={styles.emptyCard}>No active approved hazards being processed.</div>
+            <div style={styles.emptyCard}>No active approved hazards currently being processed.</div>
           ) : (
             activeTrackerReports.map((rep) => (
-              <div key={rep.id} style={styles.reportCard} onClick={() => setSelectedReport(rep)}>
+              <div key={rep.id} style={styles.itemCard} onClick={() => setSelectedReport(rep)}>
                 <div style={styles.cardHeaderRow}>
                   <span style={styles.ticketBadge}>{rep.id || rep.ticket_no}</span>
                   <span style={styles.badgeTeal}>{rep.status}</span>
                 </div>
-                <h4 style={styles.reportTitle}>{rep.hazard_type || rep.category}</h4>
-                <p style={styles.reportDesc}>📍 {rep.location}</p>
+                <h4 style={styles.itemTitle}>{rep.hazard_type || rep.category}</h4>
+                <p style={styles.itemSub}>📍 {rep.location}</p>
 
-                {/* Tracker Progression Bar */}
                 <div style={styles.trackerBar}>
                   <span style={rep.status === 'APPROVED' ? styles.stepActive : styles.stepDone}>1. Approved</span>
                   <span style={rep.status === 'DISPATCHED' ? styles.stepActive : styles.stepDone}>2. Dispatched</span>
@@ -293,7 +309,7 @@ export default function AdminScreen({ onBack }) {
                   <span style={rep.status === 'RESOLVED' ? styles.stepActive : styles.stepDone}>4. Resolved</span>
                 </div>
 
-                <div style={styles.triageActionRow}>
+                <div style={styles.actionRow}>
                   <button
                     style={styles.btnDispatch}
                     onClick={(e) => { e.stopPropagation(); handleUpdateReportStatus(rep.id, 'DISPATCHED'); }}
@@ -319,10 +335,9 @@ export default function AdminScreen({ onBack }) {
         </div>
       )}
 
-      {/* TAB 3: USER & DEVICE HANDLING */}
-      {activeTab === 'USER_HANDLING' && (
+      {/* 4. USER & DEVICE HANDLING */}
+      {currentView === 'USERS' && (
         <div style={styles.sectionStack}>
-          {/* Section A: Verified Citizens (Alphabetical Order) */}
           <div style={styles.sectionTitle}>Verified Citizens (Alphabetical Order)</div>
           {verifiedCitizens.length === 0 ? (
             <div style={styles.emptyCard}>No verified citizen profiles found.</div>
@@ -341,8 +356,7 @@ export default function AdminScreen({ onBack }) {
             ))
           )}
 
-          {/* Section B: Guest Users (Numbered 1 to N) */}
-          <div style={styles.sectionTitle}>Guest / Unverified Users (Sequential List)</div>
+          <div style={styles.sectionTitle}>Guest / Unverified Users (Sequential List #1 to #N)</div>
           {guestUsers.length === 0 ? (
             <div style={styles.emptyCard}>No guest users found.</div>
           ) : (
@@ -365,8 +379,8 @@ export default function AdminScreen({ onBack }) {
         </div>
       )}
 
-      {/* TAB 4: DELETED / REJECTED DATA */}
-      {activeTab === 'REJECTED_DATA' && (
+      {/* 5. DELETED / REJECTED DATA */}
+      {currentView === 'REJECTED' && (
         <div style={styles.sectionStack}>
           <div style={styles.sectionTitle}>Deleted & Rejected Reports Archive</div>
           <button style={styles.purgeAllBtn} onClick={handlePurgeAllRejectedData}>
@@ -377,36 +391,34 @@ export default function AdminScreen({ onBack }) {
             <div style={styles.emptyCard}>No rejected or deleted records archived.</div>
           ) : (
             rejectedDataReports.map((rep) => (
-              <div key={rep.id} style={styles.reportCard} onClick={() => setSelectedReport(rep)}>
+              <div key={rep.id} style={styles.itemCard} onClick={() => setSelectedReport(rep)}>
                 <div style={styles.cardHeaderRow}>
                   <span style={styles.ticketBadge}>{rep.id || rep.ticket_no}</span>
                   <span style={styles.badgeRed}>REJECTED</span>
                 </div>
-                <h4 style={styles.reportTitle}>{rep.hazard_type || rep.category}</h4>
-                <p style={styles.reportDesc}>Device Fingerprint: {rep.device_id}</p>
-                <p style={styles.reportDesc}>Remarks: {rep.description}</p>
+                <h4 style={styles.itemTitle}>{rep.hazard_type || rep.category}</h4>
+                <p style={styles.itemSub}>Device Fingerprint: {rep.device_id}</p>
+                <p style={styles.itemSub}>Remarks: {rep.description}</p>
               </div>
             ))
           )}
         </div>
       )}
 
-      {/* TAB 5: ANALYTICS & MAP (100% CLEAN MAP + CALENDAR) */}
-      {activeTab === 'MAP_ANALYTICS' && (
+      {/* 6. MAP & CALENDAR ANALYTICS */}
+      {currentView === 'ANALYTICS' && (
         <div style={styles.sectionStack}>
-          {/* Live Command Map (100% Clean Layout, No Highlight Wrapper) */}
           <div style={styles.sectionTitle}>Live Approved Danger Zone Map (100% Clean Layout)</div>
           <iframe
             title="Admin Hazard Pins Map"
             width="100%"
-            height="210"
+            height="220"
             frameBorder="0"
             scrolling="no"
             src="https://maps.google.com/maps?q=13.7565,121.0583&t=m&z=14&ie=UTF8&iwloc=&output=embed"
             style={styles.cleanMapIframe}
           ></iframe>
 
-          {/* Calendar-Integrated Analytics */}
           <div style={styles.sectionTitle}>Calendar-Integrated Incident Trends</div>
           <div style={styles.chartCard}>
             <div style={styles.calendarControlRow}>
@@ -469,7 +481,6 @@ export default function AdminScreen({ onBack }) {
 
               <div><span style={styles.fieldLabel}>DESCRIPTION:</span> <p style={styles.descText}>{selectedReport.description || 'No description provided.'}</p></div>
 
-              {/* Photo Evidence Gallery */}
               {parsePhotos(selectedReport.proof_photos || selectedReport.photos).length > 0 && (
                 <div>
                   <span style={styles.fieldLabel}>ATTACHED PHOTOS (Tap to Inspect):</span>
@@ -487,10 +498,9 @@ export default function AdminScreen({ onBack }) {
                 </div>
               )}
 
-              {/* Triage Decision Box */}
               <div style={styles.modalActionBox}>
                 <span style={styles.fieldLabel}>TRIAGE DECISION CONTROLS:</span>
-                <div style={styles.triageActionRow}>
+                <div style={styles.actionRow}>
                   <button style={styles.btnInvestigate} onClick={() => handleUpdateReportStatus(selectedReport.id, 'UNDER_INVESTIGATION')}>Investigate</button>
                   <button style={styles.btnApprove} onClick={() => handleUpdateReportStatus(selectedReport.id, 'APPROVED')}>Approve</button>
                   <button style={styles.btnReject} onClick={() => handleUpdateReportStatus(selectedReport.id, 'REJECTED')}>Reject</button>
@@ -517,9 +527,9 @@ export default function AdminScreen({ onBack }) {
 
               <div style={styles.modalActionBox}>
                 <span style={styles.fieldLabel}>MODERATION ACTIONS:</span>
-                <div style={styles.triageActionRow}>
+                <div style={styles.actionRow}>
                   <button style={styles.btnWarn} onClick={() => handleUpdateUserStatus(selectedUser.device_id, 'PENALIZED', 'Warning sent to device')}>
-                    ⚠️ Give Penalty
+                    ⚠️ Issue Penalty
                   </button>
                   <button style={styles.btnBan} onClick={() => handleUpdateUserStatus(selectedUser.device_id, 'BANNED', 'Device banned')}>
                     🚫 Ban Device ID
@@ -531,7 +541,7 @@ export default function AdminScreen({ onBack }) {
         </div>
       )}
 
-      {/* WHITE BLURRED PHOTO LIGHTBOX MODAL WITH FIXED SHAPE CONTAINER */}
+      {/* FROSTED WHITE BLUR LIGHTBOX WITH FIXED SHAPE CONTAINER */}
       {inspectImage && (
         <div style={styles.whiteBlurBackdrop} onClick={() => setInspectImage(null)}>
           <div style={styles.whiteBlurContainer} onClick={(e) => e.stopPropagation()}>
@@ -559,23 +569,30 @@ function getUserStatusBadgeStyle(status) {
 
 const styles = {
   container: { maxWidth: '440px', margin: '0 auto', padding: '16px', fontFamily: "'Inter', sans-serif" },
-  navHeader: { display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '14px' },
-  backBtn: { backgroundColor: 'transparent', border: 'none', color: '#0F766E', fontSize: '14px', fontWeight: '700', cursor: 'pointer' },
+  navHeader: { display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' },
+  backBtn: { backgroundColor: '#F1F5F9', border: 'none', color: '#0F766E', padding: '6px 12px', borderRadius: '6px', fontSize: '11px', fontWeight: '800', cursor: 'pointer' },
   headerTitle: { fontSize: '18px', fontWeight: '800', color: '#0F172A', margin: 0 },
   headerSub: { fontSize: '11px', color: '#64748B' },
-  mainTabRow: { display: 'flex', gap: '4px', overflowX: 'auto', marginBottom: '14px' },
-  tabActive: { padding: '8px 10px', backgroundColor: '#0F766E', color: '#FFFFFF', border: 'none', borderRadius: '6px', fontSize: '10px', fontWeight: '800', cursor: 'pointer', whiteSpace: 'nowrap' },
-  tabInactive: { padding: '8px 10px', backgroundColor: '#E2E8F0', color: '#475569', border: 'none', borderRadius: '6px', fontSize: '10px', fontWeight: '700', cursor: 'pointer', whiteSpace: 'nowrap' },
+  
+  // Dashboard Module Menu Cards (Similar to Citizen Home Grid)
+  dashboardGrid: { display: 'flex', flexDirection: 'column', gap: '12px' },
+  moduleCard: { backgroundColor: '#FFFFFF', border: '1px solid #CBD5E1', borderRadius: '12px', padding: '14px', cursor: 'pointer', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' },
+  moduleCardHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' },
+  moduleIcon: { fontSize: '22px' },
+  countBadge: { fontSize: '10px', fontWeight: '800', backgroundColor: '#CCFBF1', color: '#0F766E', padding: '2px 8px', borderRadius: '12px' },
+  moduleTitle: { fontSize: '14px', fontWeight: '800', color: '#0F172A', margin: '2px 0' },
+  moduleSub: { fontSize: '11px', color: '#64748B', margin: 0, lineHeight: '1.4' },
+
   sectionStack: { display: 'flex', flexDirection: 'column', gap: '10px' },
   sectionTitle: { fontSize: '11px', fontWeight: '800', color: '#475569', textTransform: 'uppercase' },
   emptyCard: { backgroundColor: '#FFFFFF', border: '1px solid #CBD5E1', padding: '16px', borderRadius: '8px', textAlign: 'center', color: '#64748B', fontSize: '11px' },
-  reportCard: { backgroundColor: '#FFFFFF', border: '1px solid #CBD5E1', borderRadius: '10px', padding: '10px', cursor: 'pointer' },
+  itemCard: { backgroundColor: '#FFFFFF', border: '1px solid #CBD5E1', borderRadius: '10px', padding: '10px', cursor: 'pointer' },
   cardHeaderRow: { display: 'flex', justifyContent: 'space-between', marginBottom: '4px' },
   ticketBadge: { fontSize: '9px', fontWeight: '800', backgroundColor: '#CCFBF1', color: '#0F766E', padding: '2px 6px', borderRadius: '4px' },
-  reportTitle: { fontSize: '13px', fontWeight: '800', color: '#0F172A', margin: '2px 0' },
-  reportDesc: { fontSize: '11px', color: '#475569', margin: '2px 0' },
+  itemTitle: { fontSize: '13px', fontWeight: '800', color: '#0F172A', margin: '2px 0' },
+  itemSub: { fontSize: '11px', color: '#475569', margin: '2px 0' },
   photoCountNotice: { fontSize: '10px', fontWeight: '800', color: '#0F766E', backgroundColor: '#F0FDF4', padding: '4px', borderRadius: '4px', margin: '4px 0' },
-  triageActionRow: { display: 'flex', gap: '6px', marginTop: '6px' },
+  actionRow: { display: 'flex', gap: '6px', marginTop: '6px' },
   btnInvestigate: { flex: 1, padding: '6px', backgroundColor: '#D97706', color: '#FFFFFF', border: 'none', borderRadius: '4px', fontSize: '9px', fontWeight: '800', cursor: 'pointer' },
   btnApprove: { flex: 1, padding: '6px', backgroundColor: '#166534', color: '#FFFFFF', border: 'none', borderRadius: '4px', fontSize: '9px', fontWeight: '800', cursor: 'pointer' },
   btnReject: { flex: 1, padding: '6px', backgroundColor: '#DC2626', color: '#FFFFFF', border: 'none', borderRadius: '4px', fontSize: '9px', fontWeight: '800', cursor: 'pointer' },
