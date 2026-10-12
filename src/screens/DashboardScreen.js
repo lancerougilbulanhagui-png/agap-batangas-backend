@@ -24,7 +24,7 @@ export default function DashboardScreen({ onNavigate, userRole = 'GUEST', onOpen
 
       if (data) setUserProfile(data);
     } catch (err) {
-      console.log('No registered profile found for device.');
+      console.log('No registered profile for device.');
     }
   };
 
@@ -53,10 +53,9 @@ export default function DashboardScreen({ onNavigate, userRole = 'GUEST', onOpen
     }
   };
 
-  // Strictly fallback to 'Visitor!' if user has not signed up details
-  const getGreetingName = () => {
-    if (userProfile && userProfile.full_name) {
-      return userProfile.full_name;
+  const getGreetingUsername = () => {
+    if (userProfile && userProfile.username) {
+      return userProfile.username;
     }
     return 'Visitor!';
   };
@@ -71,7 +70,7 @@ export default function DashboardScreen({ onNavigate, userRole = 'GUEST', onOpen
           <div>
             <span style={styles.brandSub}>PROJECT AGAP BATANGAS</span>
             <h2 style={styles.greetingTitle}>
-              Mabuhay, {getGreetingName()}
+              Mabuhay, {getGreetingUsername()}
             </h2>
           </div>
 
@@ -89,13 +88,15 @@ export default function DashboardScreen({ onNavigate, userRole = 'GUEST', onOpen
 
         <div style={styles.headerBottomRow}>
           <span style={isGuest ? styles.guestPill : styles.citizenPill}>
-            {isGuest ? 'GUEST VISITOR MODE' : '✓ VERIFIED CITIZEN'}
+            {isGuest ? 'GUEST VISITOR MODE' : 'VERIFIED CITIZEN'}
           </span>
-          <span style={styles.locationText}>Batangas City Command Sector</span>
+          <span style={styles.locationText}>
+            Location: {userProfile?.barangay || 'Batangas City Sector'}
+          </span>
         </div>
       </div>
 
-      {/* Emergency SOS Dispatch */}
+      {/* Emergency SOS Dispatch Banner */}
       <div style={styles.sectionHeader}>Emergency SOS Dispatch</div>
       <div style={styles.sosBanner}>
         <div style={styles.sosLeft}>
@@ -170,7 +171,7 @@ export default function DashboardScreen({ onNavigate, userRole = 'GUEST', onOpen
         </div>
       </div>
 
-      {/* Live Database Feed */}
+      {/* Live Approved Hazard Feed */}
       <div style={styles.sectionHeader}>Live Approved Hazard Feed</div>
       <div style={styles.feedList}>
         {isLoadingFeed ? (
@@ -180,18 +181,18 @@ export default function DashboardScreen({ onNavigate, userRole = 'GUEST', onOpen
             No active hazard alerts reported in Batangas City.
           </div>
         ) : (
-          liveFeed.map((item) => (
-            <div key={item.id} style={styles.feedCard}>
+          liveFeed.map((item, index) => (
+            <div key={item.id || item.created_at || index} style={styles.feedCard}>
               <div style={styles.feedCardTop}>
-                <span style={styles.badgeRed}>{item.category || item.report_type || 'HAZARD'}</span>
+                <span style={styles.badgeRed}>{item.category || item.hazard_type || 'HAZARD'}</span>
                 <span style={styles.feedTime}>
                   {item.created_at ? new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Recently'}
                 </span>
               </div>
-              <h4 style={styles.feedTitle}>{item.report_type || item.title || item.category}</h4>
+              <h4 style={styles.feedTitle}>{item.hazard_type || item.title || item.category}</h4>
               <p style={styles.feedText}>{item.description || item.details || 'No additional details provided.'}</p>
               <div style={styles.feedFooter}>
-                <span style={styles.feedLoc}>📍 {item.location}</span>
+                <span style={styles.feedLoc}>Location: {item.location}</span>
                 <span style={styles.badgeGreen}>DISPATCHED</span>
               </div>
             </div>

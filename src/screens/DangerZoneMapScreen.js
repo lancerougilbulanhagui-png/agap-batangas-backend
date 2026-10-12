@@ -1,26 +1,45 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
 
+function calculateDistanceKm(lat1, lon1, lat2, lon2) {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * (Math.PI / 180);
+  const dLon = (lon2 - lon1) * (Math.PI / 180);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * (Math.PI / 180)) *
+      Math.cos(lat2 * (Math.PI / 180)) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
 export default function DangerZoneMapScreen({ onBack }) {
+  const [selectedFilter, setSelectedFilter] = useState('ALL');
+  const [activePinId, setActivePinId] = useState(null);
+  const [mapType, setMapType] = useState('m');
   const [approvedHazards, setApprovedHazards] = useState([]);
-  const [userGps, setUserGps] = useState(null);
-  const [selectedCategory, setSelectedCategory] = useState('ALL');
-  const [activePin, setActivePin] = useState(null);
+  const [userGps, setUserGps] = useState({ lat: 13.7853, lng: 121.0745, name: 'BSU Alangilan Campus' });
+  const [isGpsActive, setIsGpsActive] = useState(false);
 
   useEffect(() => {
     fetchApprovedHazards();
-    detectLiveUserGps();
+    detectLiveGps();
   }, []);
 
-  const detectLiveUserGps = () => {
+  const detectLiveGps = () => {
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (pos) => {
-          const lat = pos.coords.latitude.toFixed(4);
-          const lng = pos.coords.longitude.toFixed(4);
-          setUserGps({ lat, lng, rawCoords: `${lat} N, ${lng} E` });
+          setUserGps({
+            lat: pos.coords.latitude,
+            lng: pos.coords.longitude,
+            name: 'Your Live Location'
+          });
+          setIsGpsActive(true);
         },
-        () => console.log('GPS detection skipped.')
+        () => console.log('Defaulting center to Batangas City')
       );
     }
   };
@@ -35,13 +54,18 @@ export default function DangerZoneMapScreen({ onBack }) {
       if (error) throw error;
       if (data) setApprovedHazards(data);
     } catch (err) {
-      console.error('Map fetch error:', err.message);
+      console.error('Fetch map error:', err.message);
     }
   };
 
-  const openInGoogleMaps = (coordString) => {
-    const cleanCoords = (coordString || 'Batangas City').replace(/[^0-9.,NnSsEeWw\s]/g, '').trim();
-    window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(cleanCoords)}`, '_blank');
+  const parseCoords = (coordStr) => {
+    if (!coordStr) return { lat: 13.7850, lng: 121.0740 };
+    const clean = coordStr.replace(/[^0-9.,-]/g, '');
+    const parts = clean.split(',').filter(Boolean);
+    if (parts.length >= 2) {
+      return { lat: parseFloat(parts[0]), lng: parseFloat(parts[1]) };
+    }
+    return { lat: 13.7850, lng: 121.0740 };
   };
 
   const getPhotoList = (photosData) => {
@@ -58,93 +82,157 @@ export default function DangerZoneMapScreen({ onBack }) {
     return [];
   };
 
-  const filteredHazards = approvedHazards.filter((h) => {
-    if (selectedCategory === 'ALL') return true;
-    return (h.hazard_type || h.category || '').toUpperCase().includes(selectedCategory);
+  const hazardsWithDistance = approvedHazards.map((h) => {
+    const coords = parseCoords(h.coordinates);
+    const distKm = calculateDistanceKm(userGps.lat, userGps.lng, coords.lat, coords.lng);
+    const formatted = distKm < 1 ? `${Math.round(distKm * 1000)}m away` : `${distKm.toFixed(1)}km away`;
+    return { ...h, parsedCoords: coords, distanceKm: distKm, distanceFormatted: formatted };
   });
+
+  const filteredLocations = selectedFilter === 'ALL'
+    ? hazardsWithDistance
+    : hazardsWithDistance.filter((loc) =>
+        (loc.severity || '').toUpperCase() === selectedFilter ||
+        (loc.category || '').toUpperCase().includes(selectedFilter)
+      );
+
+  const activeLocation = activePinId ? hazardsWithDistance.find((loc) => loc.id === activePinId) : null;
+
+  const mapCenterCoords = activeLocation
+    ? `${activeLocation.parsedCoords.lat},${activeLocation.parsedCoords.lng}`
+    : `${userGps.lat},${userGps.lng}`;
+
+  const currentZoom = activeLocation ? 16 : 14;
+  const googleMapEmbedUrl = `https://maps.google.com/maps?q=${encodeURIComponent(mapCenterCoords)}&t=${mapType}&z=${currentZoom}&ie=UTF8&iwloc=&output=embed`;
+
+  const openGoogleMapsRedirect = (coordStr, locationName) => {
+    const clean = (coordStr || locationName || 'Batangas City').replace(/[^0-9.,NnSsEeWw\s]/g, '').trim();
+    window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(clean)}`, '_blank');
+  };
 
   return (
     <div style={styles.container}>
+      {/* Navigation Header */}
       <div style={styles.navHeader}>
         <button style={styles.backBtn} onClick={onBack}>
           &lt; Back
         </button>
         <div>
-          <h2 style={styles.headerTitle}>Hazard Risk Map</h2>
-          <div style={styles.headerSub}>Database Connected Danger Zones</div>
+          <h2 style={styles.headerTitle}>Batangas Danger Zone Map</h2>
+          <div style={styles.headerSub}>Live Database Approved Risk Pins</div>
         </div>
       </div>
 
+      {/* Embedded Google Map Frame */}
+      <div style={styles.mapCard}>
+        <div style={styles.mapTopControls}>
+          <div style={styles.scopeBadge}>
+            <span style={styles.scopeBadgeText}>
+              {isGpsActive ? 'LIVE GPS ACTIVE' : 'YOU ARE HERE: BATANGAS SECTOR'}
+            </span>
+          </div>
+          <div style={styles.btnGroup}>
+            <button
+              style={mapType === 'm' ? styles.toggleActive : styles.toggleInactive}
+              onClick={() => setMapType('m')}
+            >
+              Roadmap
+            </button>
+            <button
+              style={mapType === 'k' ? styles.toggleActive : styles.toggleInactive}
+              onClick={() => setMapType('k')}
+            >
+              Satellite
+            </button>
+          </div>
+        </div>
+
+        <div style={styles.mapFrame}>
+          <iframe
+            title="Google Map Danger Zone View"
+            width="100%"
+            height="250"
+            frameBorder="0"
+            scrolling="no"
+            src={googleMapEmbedUrl}
+            style={styles.mapIframe}
+          ></iframe>
+        </div>
+
+        <div style={styles.mapViewControls}>
+          <button style={styles.resetBtn} onClick={() => setActivePinId(null)}>
+            Center View
+          </button>
+          <div style={styles.pinStatusPill}>
+            <span style={styles.pinStatusText}>
+              {activeLocation ? activeLocation.location : 'Batangas City Sector'}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Category Filter Chips */}
       <div style={styles.filterChipRow}>
-        {['ALL', 'FLOOD', 'LANDSLIDE', 'FIRE', 'POST'].map((cat) => (
+        {['ALL', 'CRITICAL', 'SEVERE', 'MODERATE', 'LOW'].map((cat) => (
           <button
             key={cat}
-            style={selectedCategory === cat ? styles.chipActive : styles.chipInactive}
-            onClick={() => setSelectedCategory(cat)}
+            style={selectedFilter === cat ? styles.chipActive : styles.chipInactive}
+            onClick={() => setSelectedFilter(cat)}
           >
             {cat}
           </button>
         ))}
       </div>
 
-      <div style={styles.mapCanvas}>
-        <div style={styles.mapGridLines}></div>
-
-        {userGps && (
-          <div style={styles.userGpsPin} title="Your Current Location">
-            <div style={styles.userPulseRing}></div>
-            <span style={styles.pinTagLabel}>YOU ARE HERE</span>
+      {/* Pins List From Database */}
+      <div style={styles.pinsListContainer}>
+        {filteredLocations.length === 0 ? (
+          <div style={styles.emptyMapCard}>
+            No approved hazard or disaster reports in database. Map is clear.
           </div>
-        )}
+        ) : (
+          filteredLocations.map((item) => (
+            <div
+              key={item.id}
+              style={activePinId === item.id ? styles.hazardCardActive : styles.hazardCard}
+              onClick={() => setActivePinId(item.id)}
+            >
+              <div style={styles.cardHeaderRow}>
+                <span style={styles.ticketTag}>{item.id}</span>
+                <span style={styles.severityTag}>{item.severity}</span>
+              </div>
 
-        {filteredHazards.map((hazard, idx) => (
-          <div
-            key={hazard.id || idx}
-            style={{
-              ...styles.hazardPin,
-              top: `${25 + (idx * 18) % 55}%`,
-              left: `${20 + (idx * 25) % 65}%`
-            }}
-            onClick={() => setActivePin(hazard)}
-          >
-            <span style={styles.hazardPinIcon}>HAZARD</span>
-            <span style={styles.hazardPinTag}>{hazard.hazard_type || hazard.category}</span>
-          </div>
-        ))}
+              <h4 style={styles.hazardTitle}>{item.hazard_type || item.title || item.category}</h4>
+              <div style={styles.hazardMeta}>Location: {item.location} ({item.distanceFormatted})</div>
+              <div style={styles.hazardMeta}>Submitted: {item.created_at ? new Date(item.created_at).toLocaleString() : 'Recently'}</div>
 
-        {filteredHazards.length === 0 && (
-          <div style={styles.noPinsOverlay}>
-            No approved hazard reports in this category.
-          </div>
+              {activePinId === item.id && (
+                <div style={styles.expandedDetails}>
+                  <p style={styles.descText}>{item.description || item.details || 'No additional remarks.'}</p>
+
+                  {getPhotoList(item.photos).length > 0 && (
+                    <div style={styles.photoGallery}>
+                      {getPhotoList(item.photos).map((pSrc, pIdx) => (
+                        <img key={pIdx} src={pSrc} alt="Evidence" style={styles.photoThumb} />
+                      ))}
+                    </div>
+                  )}
+
+                  <button
+                    style={styles.redirectBtn}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      openGoogleMapsRedirect(item.coordinates, item.location);
+                    }}
+                  >
+                    Open Pin in Google Maps App
+                  </button>
+                </div>
+              )}
+            </div>
+          ))
         )}
       </div>
-
-      {/* POPUP MODAL ON CLICK */}
-      {activePin && (
-        <div style={styles.pinDetailCard}>
-          <div style={styles.detailCardHeader}>
-            <span style={styles.ticketTag}>{activePin.hazard_type || activePin.category}</span>
-            <button style={styles.closeBtn} onClick={() => setActivePin(null)}>Close</button>
-          </div>
-          <h3 style={styles.detailTitle}>{activePin.hazard_type || activePin.category}</h3>
-          <div style={styles.detailMeta}>Date Submitted: {activePin.created_at ? new Date(activePin.created_at).toLocaleString() : 'Recently'}</div>
-          <div style={styles.detailMeta}>Location: {activePin.location}</div>
-          <div style={styles.detailMeta}>Severity: <strong style={{ color: '#DC2626' }}>{activePin.severity}</strong></div>
-          <p style={styles.detailDesc}>{activePin.description || activePin.details || 'No remarks.'}</p>
-
-          {getPhotoList(activePin.photos || activePin.photo || activePin.images).length > 0 && (
-            <div style={styles.photoBox}>
-              {getPhotoList(activePin.photos || activePin.photo || activePin.images).map((pSrc, pIdx) => (
-                <img key={pIdx} src={pSrc} alt="Evidence" style={styles.hazardPhotoThumbnail} />
-              ))}
-            </div>
-          )}
-
-          <button style={styles.googleMapsBtn} onClick={() => openInGoogleMaps(activePin.coordinates || activePin.location)}>
-            View Location on Google Maps
-          </button>
-        </div>
-      )}
     </div>
   );
 }
@@ -155,26 +243,33 @@ const styles = {
   backBtn: { backgroundColor: 'transparent', border: 'none', color: '#0F766E', fontSize: '13px', fontWeight: '700', cursor: 'pointer' },
   headerTitle: { fontSize: '18px', fontWeight: '800', color: '#0F172A', margin: 0 },
   headerSub: { fontSize: '11px', color: '#64748B' },
+  mapCard: { backgroundColor: '#FFFFFF', border: '1px solid #CBD5E1', borderRadius: '12px', padding: '10px', marginBottom: '12px' },
+  mapTopControls: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' },
+  scopeBadge: { backgroundColor: '#F0FDF4', border: '1px solid #BBF7D0', padding: '4px 8px', borderRadius: '6px' },
+  scopeBadgeText: { fontSize: '9px', fontWeight: '800', color: '#166534' },
+  btnGroup: { display: 'flex', gap: '4px' },
+  toggleActive: { padding: '4px 8px', backgroundColor: '#0F766E', color: '#FFFFFF', border: 'none', borderRadius: '4px', fontSize: '10px', fontWeight: '800', cursor: 'pointer' },
+  toggleInactive: { padding: '4px 8px', backgroundColor: '#F1F5F9', color: '#64748B', border: 'none', borderRadius: '4px', fontSize: '10px', fontWeight: '600', cursor: 'pointer' },
+  mapFrame: { borderRadius: '8px', overflow: 'hidden', border: '1px solid #CBD5E1' },
+  mapIframe: { width: '100%', display: 'block' },
+  mapViewControls: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '8px' },
+  resetBtn: { padding: '5px 10px', backgroundColor: '#F1F5F9', border: '1px solid #CBD5E1', borderRadius: '4px', fontSize: '10px', fontWeight: '700', color: '#475569', cursor: 'pointer' },
+  pinStatusPill: { fontSize: '10px', color: '#0F766E', fontWeight: '700' },
   filterChipRow: { display: 'flex', gap: '6px', overflowX: 'auto', marginBottom: '12px', paddingBottom: '4px' },
   chipActive: { padding: '6px 12px', backgroundColor: '#0F766E', color: '#FFFFFF', border: 'none', borderRadius: '16px', fontSize: '10px', fontWeight: '800', cursor: 'pointer' },
   chipInactive: { padding: '6px 12px', backgroundColor: '#E2E8F0', color: '#475569', border: 'none', borderRadius: '16px', fontSize: '10px', fontWeight: '600', cursor: 'pointer' },
-  mapCanvas: { width: '100%', height: '300px', backgroundColor: '#0F172A', borderRadius: '12px', position: 'relative', overflow: 'hidden', border: '1px solid #334155' },
-  mapGridLines: { width: '100%', height: '100%', opacity: 0.1, backgroundImage: 'radial-gradient(#94A3B8 1px, transparent 1px)', backgroundSize: '16px 16px' },
-  userGpsPin: { position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', display: 'flex', flexDirection: 'column', alignItems: 'center', zIndex: 10 },
-  userPulseRing: { width: '14px', height: '14px', backgroundColor: '#0284C7', borderRadius: '50%', border: '2px solid #FFFFFF', boxShadow: '0 0 10px #0284C7' },
-  pinTagLabel: { fontSize: '8px', fontWeight: '800', color: '#FFFFFF', backgroundColor: '#0284C7', padding: '2px 6px', borderRadius: '4px', marginTop: '2px' },
-  hazardPin: { position: 'absolute', display: 'flex', flexDirection: 'column', alignItems: 'center', cursor: 'pointer', zIndex: 5 },
-  hazardPinIcon: { backgroundColor: '#DC2626', color: '#FFFFFF', fontSize: '8px', fontWeight: '800', padding: '2px 6px', borderRadius: '4px' },
-  hazardPinTag: { fontSize: '8px', color: '#F8FAFC', backgroundColor: 'rgba(15, 23, 42, 0.8)', padding: '1px 4px', borderRadius: '2px', marginTop: '2px' },
-  noPinsOverlay: { position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', color: '#94A3B8', fontSize: '11px', fontWeight: '700', textAlign: 'center' },
-  pinDetailCard: { marginTop: '12px', backgroundColor: '#FFFFFF', border: '1px solid #CBD5E1', borderRadius: '10px', padding: '12px' },
-  detailCardHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
+  pinsListContainer: { display: 'flex', flexDirection: 'column', gap: '8px' },
+  emptyMapCard: { backgroundColor: '#FFFFFF', border: '1px solid #CBD5E1', padding: '16px', borderRadius: '8px', textAlign: 'center', color: '#64748B', fontSize: '11px' },
+  hazardCard: { backgroundColor: '#FFFFFF', border: '1px solid #CBD5E1', borderRadius: '8px', padding: '10px', cursor: 'pointer' },
+  hazardCardActive: { backgroundColor: '#F0FDF4', border: '2px solid #0F766E', borderRadius: '8px', padding: '10px', cursor: 'pointer' },
+  cardHeaderRow: { display: 'flex', justifyContent: 'space-between', marginBottom: '4px' },
   ticketTag: { fontSize: '10px', fontWeight: '800', color: '#0F766E', backgroundColor: '#CCFBF1', padding: '2px 6px', borderRadius: '4px' },
-  closeBtn: { border: 'none', backgroundColor: 'transparent', fontSize: '11px', color: '#64748B', fontWeight: '700', cursor: 'pointer' },
-  detailTitle: { fontSize: '14px', fontWeight: '800', color: '#0F172A', margin: '6px 0 2px 0' },
-  detailMeta: { fontSize: '11px', color: '#475569' },
-  detailDesc: { fontSize: '11px', color: '#334155', marginTop: '6px' },
-  photoBox: { display: 'flex', gap: '6px', marginTop: '8px', overflowX: 'auto' },
-  hazardPhotoThumbnail: { width: '70px', height: '60px', objectFit: 'cover', borderRadius: '6px', border: '1px solid #CBD5E1' },
-  googleMapsBtn: { width: '100%', marginTop: '10px', padding: '9px', backgroundColor: '#0F766E', color: '#FFFFFF', border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: '800', cursor: 'pointer' }
+  severityTag: { fontSize: '10px', fontWeight: '800', color: '#DC2626', backgroundColor: '#FEE2E2', padding: '2px 6px', borderRadius: '4px' },
+  hazardTitle: { fontSize: '13px', fontWeight: '800', color: '#0F172A', margin: '2px 0' },
+  hazardMeta: { fontSize: '10px', color: '#64748B' },
+  expandedDetails: { marginTop: '8px', paddingTop: '8px', borderTop: '1px solid #E2E8F0' },
+  descText: { fontSize: '11px', color: '#334155', margin: '0 0 6px 0', lineHeight: '1.4' },
+  photoGallery: { display: 'flex', gap: '6px', marginBottom: '8px', overflowX: 'auto' },
+  photoThumb: { width: '80px', height: '60px', objectFit: 'cover', borderRadius: '6px', border: '1px solid #CBD5E1' },
+  redirectBtn: { width: '100%', padding: '8px', backgroundColor: '#0F766E', color: '#FFFFFF', border: 'none', borderRadius: '6px', fontSize: '10px', fontWeight: '800', cursor: 'pointer' }
 };

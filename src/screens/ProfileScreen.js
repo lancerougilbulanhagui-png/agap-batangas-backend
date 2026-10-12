@@ -4,6 +4,9 @@ import { supabase } from '../supabaseClient';
 export default function ProfileScreen({ onBack, onAdminLogin }) {
   const [deviceId, setDeviceId] = useState('');
   const [profile, setProfile] = useState(null);
+  const [isEditing, setIsEditing] = useState(false);
+  
+  // Form State
   const [username, setUsername] = useState('');
   const [fullName, setFullName] = useState('');
   const [phone, setPhone] = useState('');
@@ -29,7 +32,14 @@ export default function ProfileScreen({ onBack, onAdminLogin }) {
         .eq('device_id', targetDeviceId)
         .maybeSingle();
 
-      if (data) setProfile(data);
+      if (data) {
+        setProfile(data);
+        setUsername(data.username || '');
+        setFullName(data.full_name || '');
+        setPhone(data.phone || '');
+        setBarangay(data.barangay || 'Brgy. Alangilan');
+        setIdProofPhoto(data.id_proof_photo || '');
+      }
     } catch (err) {
       console.log('No profile recorded for device yet.');
     }
@@ -46,32 +56,56 @@ export default function ProfileScreen({ onBack, onAdminLogin }) {
     };
   };
 
-  const handleRegisterOrLogin = async (e) => {
+  const handleSaveProfile = async (e) => {
     e.preventDefault();
     setIsSubmitting(true);
 
     try {
-      const profileId = 'USER-' + Math.floor(100000 + Math.random() * 900000);
-      const combinedName = username ? `${username} (${fullName})` : fullName;
+      if (profile) {
+        // UPDATE existing profile record in Supabase
+        const updates = {
+          username: username,
+          full_name: fullName,
+          phone: phone,
+          barangay: barangay,
+          ...(idProofPhoto ? { id_proof_photo: idProofPhoto } : {})
+        };
 
-      const payload = {
-        id: profileId,
-        device_id: deviceId,
-        full_name: combinedName,
-        phone: phone,
-        barangay: barangay,
-        user_role: 'GUEST',
-        verification_status: 'PENDING',
-        id_proof_photo: idProofPhoto
-      };
+        const { error } = await supabase
+          .from('profiles')
+          .update(updates)
+          .eq('device_id', deviceId);
 
-      const { error } = await supabase.from('profiles').insert([payload]);
-      if (error) throw error;
+        if (error) throw error;
 
-      alert('[SUCCESS] Profile submitted! You can now use all app functions while admin verifies your ID.');
-      setProfile(payload);
+        alert('[SUCCESS] Profile details updated successfully!');
+        setProfile({ ...profile, ...updates });
+        setIsEditing(false);
+      } else {
+        // CREATE new profile record in Supabase
+        const profileId = 'USER-' + Math.floor(100000 + Math.random() * 900000);
+
+        const payload = {
+          id: profileId,
+          device_id: deviceId,
+          username: username,
+          full_name: fullName,
+          phone: phone,
+          barangay: barangay,
+          user_role: 'GUEST',
+          verification_status: 'PENDING',
+          id_proof_photo: idProofPhoto
+        };
+
+        const { error } = await supabase.from('profiles').insert([payload]);
+        if (error) throw error;
+
+        alert('[SUCCESS] Details saved! You can now use all app functions while admin verifies your identity.');
+        setProfile(payload);
+        setIsEditing(false);
+      }
     } catch (err) {
-      alert(`[ERROR] Registration failed: ${err.message}`);
+      alert(`[ERROR] Save failed: ${err.message}`);
     } finally {
       setIsSubmitting(false);
     }
@@ -90,39 +124,59 @@ export default function ProfileScreen({ onBack, onAdminLogin }) {
       </div>
 
       <div style={styles.deviceBox}>
-        <span style={styles.deviceLabel}>ACTIVE DEVICE IDENTIFIER:</span>
+        <span style={styles.deviceLabel}>ACTIVE DEVICE FINGERPRINT:</span>
         <div style={styles.deviceVal}>{deviceId || 'Loading...'}</div>
       </div>
 
-      {profile ? (
+      {profile && !isEditing ? (
         <div style={styles.profileCard}>
           <div style={styles.statusRow}>
             <span style={profile.verification_status === 'VERIFIED' ? styles.badgeGreen : styles.badgeYellow}>
-              {profile.verification_status === 'VERIFIED' ? '✓ VERIFIED BATANGAS CITIZEN' : 'VERIFICATION PENDING ADMIN REVIEW'}
+              {profile.verification_status === 'VERIFIED' ? 'VERIFIED BATANGAS CITIZEN' : 'VERIFICATION PENDING ADMIN REVIEW'}
             </span>
           </div>
 
-          <h3 style={styles.userName}>{profile.full_name}</h3>
-          <div style={styles.userMeta}>Barangay: {profile.barangay}</div>
-          <div style={styles.userMeta}>Phone: {profile.phone}</div>
-          <div style={styles.userMeta}>Current Role: {profile.user_role}</div>
+          <h3 style={styles.userName}>Username: @{profile.username || 'User'}</h3>
+          <div style={styles.userMeta}>Full Legal Name: {profile.full_name}</div>
+          <div style={styles.userMeta}>Barangay Residency: {profile.barangay}</div>
+          <div style={styles.userMeta}>Phone Number: {profile.phone || 'Not provided'}</div>
 
           <div style={styles.infoBanner}>
-            You can fully report hazards and access emergency services while CDRRMO completes ID verification.
+            Your details are active. You can report hazards and access emergency features.
           </div>
+
+          <button
+            style={styles.editBtn}
+            onClick={() => setIsEditing(true)}
+          >
+            Edit Profile Details
+          </button>
         </div>
       ) : (
         <div style={styles.authCard}>
-          <h3 style={styles.authTitle}>Sign Up / Citizen Verification</h3>
-          <p style={styles.authSub}>Fill in your details below to request Verified Citizen status in Batangas City.</p>
+          <div style={styles.authHeaderRow}>
+            <h3 style={styles.authTitle}>
+              {profile ? 'Edit Profile Details' : 'Sign Up / Citizen Verification'}
+            </h3>
+            {profile && (
+              <button style={styles.cancelBtn} onClick={() => setIsEditing(false)}>
+                Cancel
+              </button>
+            )}
+          </div>
+          <p style={styles.authSub}>
+            {profile
+              ? 'Update your legal name, username, phone, or barangay location.'
+              : 'Enter your details below to set up your account and request Verified Citizen status.'}
+          </p>
 
-          <form onSubmit={handleRegisterOrLogin} style={styles.formStack}>
+          <form onSubmit={handleSaveProfile} style={styles.formStack}>
             <div>
-              <label style={styles.inputLabel}>CHOOSE USERNAME</label>
+              <label style={styles.inputLabel}>USERNAME</label>
               <input
                 type="text"
                 style={styles.textInput}
-                placeholder="e.g. BatangasResident01"
+                placeholder="e.g. BatangasUser01"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 required
@@ -154,33 +208,39 @@ export default function ProfileScreen({ onBack, onAdminLogin }) {
             </div>
 
             <div>
-              <label style={styles.inputLabel}>BARANGAY RESIDENCY</label>
-              <select
-                style={styles.selectInput}
+              <label style={styles.inputLabel}>BARANGAY RESIDENCY LOCATION</label>
+              <input
+                type="text"
+                style={styles.textInput}
+                placeholder="e.g. Brgy. Alangilan, Batangas City"
                 value={barangay}
                 onChange={(e) => setBarangay(e.target.value)}
-              >
-                <option value="Brgy. Alangilan">Brgy. Alangilan</option>
-                <option value="Brgy. Kumintang Ibaba">Brgy. Kumintang Ibaba</option>
-                <option value="Brgy. Bolbok">Brgy. Bolbok</option>
-                <option value="Brgy. Gulod Labac">Brgy. Gulod Labac</option>
-              </select>
+                required
+              />
             </div>
 
             <div>
-              <label style={styles.inputLabel}>ATTACH VALID ID / PROOF OF RESIDENCY</label>
-              <input type="file" accept="image/*" onChange={handlePhotoUpload} style={styles.fileInput} required />
-              {idProofPhoto && <div style={styles.photoAttachedTag}>✓ ID Photo Attached</div>}
+              <label style={styles.inputLabel}>
+                {profile ? 'UPDATE VALID ID / PROOF OF RESIDENCY (OPTIONAL)' : 'ATTACH VALID ID / PROOF OF RESIDENCY'}
+              </label>
+              <input
+                type="file"
+                accept="image/*"
+                onChange={handlePhotoUpload}
+                style={styles.fileInput}
+                required={!profile}
+              />
+              {idProofPhoto && <div style={styles.photoAttachedTag}>ID Photo Attached</div>}
             </div>
 
             <button type="submit" style={styles.submitBtn} disabled={isSubmitting}>
-              {isSubmitting ? 'Transmitting...' : 'Submit & Start Using AGAP'}
+              {isSubmitting ? 'Saving Changes...' : profile ? 'Save Updated Details' : 'Submit Details & Start Using AGAP'}
             </button>
           </form>
         </div>
       )}
 
-      {/* Admin Command Portal Access */}
+      {/* Admin Portal Access Button */}
       <div style={styles.adminAccessBox}>
         <span style={styles.adminLabel}>CDRRMO OFFICIAL ACCESS</span>
         <button style={styles.adminPortalBtn} onClick={onAdminLogin}>
@@ -207,13 +267,15 @@ const styles = {
   userName: { fontSize: '16px', fontWeight: '800', color: '#0F172A', margin: '0 0 6px 0' },
   userMeta: { fontSize: '12px', color: '#475569', marginBottom: '4px' },
   infoBanner: { marginTop: '12px', backgroundColor: '#F0FDF4', border: '1px solid #A7F3D0', padding: '8px', borderRadius: '6px', fontSize: '11px', color: '#065F46', lineHeight: '1.4' },
+  editBtn: { width: '100%', marginTop: '12px', padding: '10px', backgroundColor: '#0F766E', color: '#FFFFFF', border: 'none', borderRadius: '8px', fontSize: '12px', fontWeight: '800', cursor: 'pointer' },
   authCard: { backgroundColor: '#FFFFFF', border: '1px solid #CBD5E1', borderRadius: '12px', padding: '16px' },
+  authHeaderRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
   authTitle: { fontSize: '15px', fontWeight: '800', color: '#0F172A', margin: '0 0 4px 0' },
+  cancelBtn: { backgroundColor: '#F1F5F9', border: '1px solid #CBD5E1', padding: '4px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: '700', color: '#64748B', cursor: 'pointer' },
   authSub: { fontSize: '11px', color: '#64748B', marginBottom: '12px', lineHeight: '1.4' },
   formStack: { display: 'flex', flexDirection: 'column', gap: '10px' },
   inputLabel: { fontSize: '10px', fontWeight: '800', color: '#64748B', display: 'block', marginBottom: '4px' },
   textInput: { width: '100%', padding: '9px', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '12px', boxSizing: 'border-box' },
-  selectInput: { width: '100%', padding: '9px', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '12px' },
   fileInput: { fontSize: '11px' },
   photoAttachedTag: { fontSize: '10px', fontWeight: '800', color: '#15803D', marginTop: '4px' },
   submitBtn: { width: '100%', padding: '11px', backgroundColor: '#0F766E', color: '#FFFFFF', border: 'none', borderRadius: '8px', fontSize: '12px', fontWeight: '800', cursor: 'pointer', marginTop: '6px' },
