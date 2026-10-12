@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
 
-export default function ProfileScreen({ onBack }) {
+export default function ProfileScreen({ onBack, onAdminLogin }) {
   const [deviceId, setDeviceId] = useState('');
   const [profile, setProfile] = useState(null);
   const [username, setUsername] = useState('');
@@ -27,7 +27,7 @@ export default function ProfileScreen({ onBack }) {
         .from('profiles')
         .select('*')
         .eq('device_id', targetDeviceId)
-        .single();
+        .maybeSingle();
 
       if (data) setProfile(data);
     } catch (err) {
@@ -52,10 +52,12 @@ export default function ProfileScreen({ onBack }) {
 
     try {
       const profileId = 'USER-' + Math.floor(100000 + Math.random() * 900000);
+      const combinedName = username ? `${username} (${fullName})` : fullName;
+
       const payload = {
         id: profileId,
         device_id: deviceId,
-        full_name: `${username ? username + ' (' + fullName + ')' : fullName}`,
+        full_name: combinedName,
         phone: phone,
         barangay: barangay,
         user_role: 'GUEST',
@@ -66,7 +68,7 @@ export default function ProfileScreen({ onBack }) {
       const { error } = await supabase.from('profiles').insert([payload]);
       if (error) throw error;
 
-      alert('[SUCCESS] Profile created & application sent to Admin!');
+      alert('[SUCCESS] Profile submitted! You can now use all app functions while admin verifies your ID.');
       setProfile(payload);
     } catch (err) {
       alert(`[ERROR] Registration failed: ${err.message}`);
@@ -82,36 +84,37 @@ export default function ProfileScreen({ onBack }) {
           &lt; Back
         </button>
         <div>
-          <h2 style={styles.headerTitle}>User Identity & Role Locking</h2>
-          <div style={styles.headerSub}>Project AGAP Device Fingerprint</div>
+          <h2 style={styles.headerTitle}>User Identity & Verification</h2>
+          <div style={styles.headerSub}>Project AGAP Resident Registration</div>
         </div>
       </div>
 
       <div style={styles.deviceBox}>
         <span style={styles.deviceLabel}>ACTIVE DEVICE IDENTIFIER:</span>
         <div style={styles.deviceVal}>{deviceId || 'Loading...'}</div>
-        <span style={styles.deviceSub}>
-          1 Physical Device = 1 Bound Identity (Guest or Verified Citizen)
-        </span>
       </div>
 
       {profile ? (
         <div style={styles.profileCard}>
           <div style={styles.statusRow}>
             <span style={profile.verification_status === 'VERIFIED' ? styles.badgeGreen : styles.badgeYellow}>
-              {profile.verification_status === 'VERIFIED' ? 'VERIFIED BATANGAS CITIZEN' : 'VERIFICATION PENDING ADMIN REVIEW'}
+              {profile.verification_status === 'VERIFIED' ? '✓ VERIFIED BATANGAS CITIZEN' : 'VERIFICATION PENDING ADMIN REVIEW'}
             </span>
           </div>
 
           <h3 style={styles.userName}>{profile.full_name}</h3>
           <div style={styles.userMeta}>Barangay: {profile.barangay}</div>
           <div style={styles.userMeta}>Phone: {profile.phone}</div>
-          <div style={styles.userMeta}>Bound Role: {profile.user_role}</div>
+          <div style={styles.userMeta}>Current Role: {profile.user_role}</div>
+
+          <div style={styles.infoBanner}>
+            You can fully report hazards and access emergency services while CDRRMO completes ID verification.
+          </div>
         </div>
       ) : (
         <div style={styles.authCard}>
           <h3 style={styles.authTitle}>Sign Up / Citizen Verification</h3>
-          <p style={styles.authSub}>First-time users operate as Guest until residency verification is approved by CDRRMO.</p>
+          <p style={styles.authSub}>Fill in your details below to request Verified Citizen status in Batangas City.</p>
 
           <form onSubmit={handleRegisterOrLogin} style={styles.formStack}>
             <div>
@@ -119,7 +122,7 @@ export default function ProfileScreen({ onBack }) {
               <input
                 type="text"
                 style={styles.textInput}
-                placeholder="e.g. BatangasCitizen01"
+                placeholder="e.g. BatangasResident01"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 required
@@ -131,7 +134,7 @@ export default function ProfileScreen({ onBack }) {
               <input
                 type="text"
                 style={styles.textInput}
-                placeholder="Enter complete name"
+                placeholder="Enter complete legal name"
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
                 required
@@ -167,15 +170,23 @@ export default function ProfileScreen({ onBack }) {
             <div>
               <label style={styles.inputLabel}>ATTACH VALID ID / PROOF OF RESIDENCY</label>
               <input type="file" accept="image/*" onChange={handlePhotoUpload} style={styles.fileInput} required />
-              {idProofPhoto && <div style={styles.photoAttachedTag}>ID Photo Attached</div>}
+              {idProofPhoto && <div style={styles.photoAttachedTag}>✓ ID Photo Attached</div>}
             </div>
 
             <button type="submit" style={styles.submitBtn} disabled={isSubmitting}>
-              {isSubmitting ? 'Transmitting...' : 'Register & Request Citizen Verification'}
+              {isSubmitting ? 'Transmitting...' : 'Submit & Start Using AGAP'}
             </button>
           </form>
         </div>
       )}
+
+      {/* Admin Command Portal Access */}
+      <div style={styles.adminAccessBox}>
+        <span style={styles.adminLabel}>CDRRMO OFFICIAL ACCESS</span>
+        <button style={styles.adminPortalBtn} onClick={onAdminLogin}>
+          Open Admin Command Center
+        </button>
+      </div>
     </div>
   );
 }
@@ -189,13 +200,13 @@ const styles = {
   deviceBox: { backgroundColor: '#F1F5F9', border: '1px solid #CBD5E1', borderRadius: '8px', padding: '10px', marginBottom: '14px' },
   deviceLabel: { fontSize: '9px', fontWeight: '800', color: '#64748B', display: 'block' },
   deviceVal: { fontSize: '12px', fontWeight: '800', color: '#0F766E', marginTop: '2px' },
-  deviceSub: { fontSize: '10px', color: '#64748B', marginTop: '4px', display: 'block' },
   profileCard: { backgroundColor: '#FFFFFF', border: '1px solid #CBD5E1', borderRadius: '12px', padding: '16px' },
   statusRow: { marginBottom: '10px' },
   badgeGreen: { fontSize: '10px', fontWeight: '800', backgroundColor: '#DCFCE7', color: '#166534', padding: '4px 8px', borderRadius: '6px' },
   badgeYellow: { fontSize: '10px', fontWeight: '800', backgroundColor: '#FEF3C7', color: '#92400E', padding: '4px 8px', borderRadius: '6px' },
   userName: { fontSize: '16px', fontWeight: '800', color: '#0F172A', margin: '0 0 6px 0' },
   userMeta: { fontSize: '12px', color: '#475569', marginBottom: '4px' },
+  infoBanner: { marginTop: '12px', backgroundColor: '#F0FDF4', border: '1px solid #A7F3D0', padding: '8px', borderRadius: '6px', fontSize: '11px', color: '#065F46', lineHeight: '1.4' },
   authCard: { backgroundColor: '#FFFFFF', border: '1px solid #CBD5E1', borderRadius: '12px', padding: '16px' },
   authTitle: { fontSize: '15px', fontWeight: '800', color: '#0F172A', margin: '0 0 4px 0' },
   authSub: { fontSize: '11px', color: '#64748B', marginBottom: '12px', lineHeight: '1.4' },
@@ -205,5 +216,8 @@ const styles = {
   selectInput: { width: '100%', padding: '9px', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '12px' },
   fileInput: { fontSize: '11px' },
   photoAttachedTag: { fontSize: '10px', fontWeight: '800', color: '#15803D', marginTop: '4px' },
-  submitBtn: { width: '100%', padding: '11px', backgroundColor: '#0F766E', color: '#FFFFFF', border: 'none', borderRadius: '8px', fontSize: '12px', fontWeight: '800', cursor: 'pointer', marginTop: '6px' }
+  submitBtn: { width: '100%', padding: '11px', backgroundColor: '#0F766E', color: '#FFFFFF', border: 'none', borderRadius: '8px', fontSize: '12px', fontWeight: '800', cursor: 'pointer', marginTop: '6px' },
+  adminAccessBox: { marginTop: '20px', paddingTop: '14px', borderTop: '1px solid #E2E8F0', textAlign: 'center' },
+  adminLabel: { fontSize: '9px', fontWeight: '800', color: '#94A3B8', display: 'block', marginBottom: '6px', letterSpacing: '0.6px' },
+  adminPortalBtn: { backgroundColor: '#1E293B', color: '#FFFFFF', border: 'none', padding: '8px 14px', borderRadius: '6px', fontSize: '11px', fontWeight: '800', cursor: 'pointer' }
 };

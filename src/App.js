@@ -1,163 +1,144 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from './supabaseClient';
 
-// Import Screens
+// Import All UI Screens
 import LandingScreen from './screens/LandingScreen';
 import DashboardScreen from './screens/DashboardScreen';
 import ReportSubmitScreen from './screens/ReportSubmitScreen';
-import HotlineScreen from './screens/HotlineScreen';
+import HotlinesScreen from './screens/HotlinesScreen';
 import ReportTrackerScreen from './screens/ReportTrackerScreen';
 import DangerZoneMapScreen from './screens/DangerZoneMapScreen';
-import ProfileScreen from './screens/ProfileScreen';
 import AdminScreen from './screens/AdminScreen';
+import ProfileScreen from './screens/ProfileScreen';
 
+/**
+ * Project AGAP Batangas - Real-World Application Router
+ */
 export default function App() {
-  const [currentScreen, setCurrentScreen] = useState('landing');
-  const [userRole, setUserRole] = useState('CITIZEN');
-  const [reports, setReports] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [currentScreen, setCurrentScreen] = useState('landing'); 
+  const [userRole, setUserRole] = useState('GUEST'); 
+  const [userProfile, setUserProfile] = useState(null);
 
-  // Fetch all reports from Supabase PostgreSQL
-  const fetchReports = async () => {
-    setIsLoading(true);
-    const { data, error } = await supabase['from']('reports')['select']('*')['order']('created_at', { ascending: false });
-    if (error) {
-      console['error']('Database Fetch Error:', error);
-    } else {
-      setReports(data || []);
-    }
-    setIsLoading(false);
-  };
-
+  // Auto-detect existing device profile on app load
   useEffect(() => {
-    fetchReports();
+    checkExistingDeviceProfile();
   }, []);
 
-  // Save new report into PostgreSQL
-  const handleAddNewReport = async (newReportObj) => {
-    const dbPayload = {
-      id: newReportObj['id'],
-      sender_name: newReportObj['senderName'] || 'Resident',
-      user_role: newReportObj['userRole'] || userRole,
-      user_phone: newReportObj['userPhone'] || '',
-      category: newReportObj['category'],
-      severity: newReportObj['severity'],
-      title: newReportObj['title'],
-      location: newReportObj['location'],
-      coordinates: newReportObj['coordinates'],
-      status: 'PENDING',
-      details: newReportObj['details']
-    };
+  const checkExistingDeviceProfile = async () => {
+    let localDeviceId = localStorage.getItem('agap_device_id');
+    if (!localDeviceId) {
+      localDeviceId = 'DEV-' + Math.floor(100000 + Math.random() * 900000);
+      localStorage.setItem('agap_device_id', localDeviceId);
+    }
 
-    const { error } = await supabase['from']('reports')['insert']([dbPayload]);
-    if (error) {
-      alert('⚠️ Error saving report to cloud database.');
-      console['error'](error);
-    } else {
-      fetchReports();
+    try {
+      const { data } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('device_id', localDeviceId)
+        .maybeSingle();
+
+      if (data) {
+        setUserProfile(data);
+        setUserRole(data.user_role || 'GUEST');
+      }
+    } catch (err) {
+      console.log('No profile found yet for this device.');
     }
   };
 
-  // Delete report permanently from PostgreSQL
-  const handleDeleteReport = async (targetId) => {
-    const { error } = await supabase['from']('reports')['delete']()['eq']('id', targetId);
-    if (error) {
-      alert('⚠️ Error removing report from database.');
-      console['error'](error);
+  // Landing Screen: User selects "YES, I live in Batangas"
+  const handleResidentAccess = () => {
+    if (userProfile && userProfile.full_name) {
+      // If already registered, go straight to dashboard
+      setCurrentScreen('dashboard');
     } else {
-      fetchReports();
+      // Direct to Profile screen to fill up details
+      setCurrentScreen('profile');
     }
+  };
+
+  // Landing Screen: User selects "NO, I live outside Batangas"
+  const handleGuestAccess = () => {
+    setUserRole('GUEST');
+    setCurrentScreen('dashboard');
+  };
+
+  const handleNavigate = (screenKey) => {
+    setCurrentScreen(screenKey);
+  };
+
+  const handleBackToDashboard = () => {
+    setCurrentScreen('dashboard');
+  };
+
+  const handleAdminLogin = () => {
+    setUserRole('ADMIN');
+    setCurrentScreen('admin');
   };
 
   return (
-    <div style={styles['appContainer']}>
-      {/* Top Demo Bar */}
-      <div style={styles['demoToolbar']}>
-        <div style={styles['roleButtonGroup']}>
-          <button
-            style={userRole === 'CITIZEN' ? styles['roleBtnActive'] : styles['roleBtnInactive']}
-            onClick={() => { setUserRole('CITIZEN'); setCurrentScreen('dashboard'); }}
-          >
-            Citizen
-          </button>
-          <button
-            style={userRole === 'GUEST' ? styles['roleBtnActive'] : styles['roleBtnInactive']}
-            onClick={() => { setUserRole('GUEST'); setCurrentScreen('dashboard'); }}
-          >
-            Guest
-          </button>
-          <button
-            style={userRole === 'ADMIN' ? styles['roleBtnActive'] : styles['roleBtnInactive']}
-            onClick={() => { setUserRole('ADMIN'); setCurrentScreen('admin'); }}
-          >
-            Admin
-          </button>
-        </div>
-
-        <button style={styles['refreshBtn']} onClick={fetchReports}>
-          🔄 Sync DB ({reports['length']})
-        </button>
-      </div>
-
-      {/* Main Screen Router */}
-      <div style={styles['screenWrapper']}>
+    <div style={styles.appContainer}>
+      <div style={styles.screenWrapper}>
+        {/* 1. Landing Screen */}
         {currentScreen === 'landing' && (
           <LandingScreen
-            onResidentAccess={() => { setUserRole('CITIZEN'); setCurrentScreen('dashboard'); }}
-            onGuestAccess={() => { setUserRole('GUEST'); setCurrentScreen('dashboard'); }}
+            onResidentAccess={handleResidentAccess}
+            onGuestAccess={handleGuestAccess}
           />
         )}
 
+        {/* 2. Main Dashboard */}
         {currentScreen === 'dashboard' && (
           <DashboardScreen
-            onNavigate={(s) => setCurrentScreen(s)}
+            onNavigate={handleNavigate}
             userRole={userRole}
             onOpenProfile={() => setCurrentScreen('profile')}
           />
         )}
 
-        {currentScreen === 'submit-report' && (
-          <ReportSubmitScreen
-            onBack={() => setCurrentScreen('dashboard')}
-            onSubmitSuccess={() => setCurrentScreen('dashboard')}
-            onSubmitReport={handleAddNewReport}
-            userRole={userRole}
-          />
-        )}
-
-        {currentScreen === 'hotlines' && (
-          <HotlineScreen
-            onBack={() => setCurrentScreen('dashboard')}
-            onOpenProfile={() => setCurrentScreen('profile')}
-          />
-        )}
-
-        {currentScreen === 'tracker' && (
-          <ReportTrackerScreen
-            onBack={() => setCurrentScreen('dashboard')}
-            reports={reports}
-          />
-        )}
-
-        {currentScreen === 'danger-map' && (
-          <DangerZoneMapScreen
-            onBack={() => setCurrentScreen('dashboard')}
-            reports={reports}
-          />
-        )}
-
+        {/* 3. Profile & Residency Signup Screen */}
         {currentScreen === 'profile' && (
           <ProfileScreen
-            onBack={() => setCurrentScreen('dashboard')}
+            onBack={handleBackToDashboard}
+            onAdminLogin={handleAdminLogin}
+          />
+        )}
+
+        {/* 4. Submit Hazard Report */}
+        {currentScreen === 'submit-report' && (
+          <ReportSubmitScreen
+            onBack={handleBackToDashboard}
+            onSubmitSuccess={handleBackToDashboard}
             userRole={userRole}
           />
         )}
 
+        {/* 5. Emergency Hotline Directory */}
+        {currentScreen === 'hotlines' && (
+          <HotlinesScreen
+            onBack={handleBackToDashboard}
+          />
+        )}
+
+        {/* 6. Report Tracker */}
+        {currentScreen === 'tracker' && (
+          <ReportTrackerScreen
+            onBack={handleBackToDashboard}
+          />
+        )}
+
+        {/* 7. Danger Zone Risk Map */}
+        {currentScreen === 'danger-map' && (
+          <DangerZoneMapScreen
+            onBack={handleBackToDashboard}
+          />
+        )}
+
+        {/* 8. Admin Command Center */}
         {currentScreen === 'admin' && (
           <AdminScreen
-            onBack={() => setCurrentScreen('dashboard')}
-            reports={reports}
-            onDeleteReport={handleDeleteReport}
+            onBack={handleBackToDashboard}
           />
         )}
       </div>
@@ -166,11 +147,19 @@ export default function App() {
 }
 
 const styles = {
-  appContainer: { maxWidth: '440px', margin: '0 auto', minHeight: '100vh', backgroundColor: '#CBD5E1', fontFamily: "'Inter', sans-serif" },
-  demoToolbar: { backgroundColor: '#0F172A', color: '#FFFFFF', padding: '8px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
-  roleButtonGroup: { display: 'flex', gap: '6px' },
-  roleBtnActive: { backgroundColor: '#0F766E', color: '#FFFFFF', border: 'none', padding: '4px 10px', borderRadius: '4px', fontSize: '10px', fontWeight: '800', cursor: 'pointer' },
-  roleBtnInactive: { backgroundColor: '#1E293B', color: '#94A3B8', border: 'none', padding: '4px 10px', borderRadius: '4px', fontSize: '10px', fontWeight: '600', cursor: 'pointer' },
-  refreshBtn: { backgroundColor: '#334155', color: '#F1F5F9', border: '1px solid #475569', padding: '4px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: '700', cursor: 'pointer' },
-  screenWrapper: { backgroundColor: '#F8FAFC', minHeight: 'calc(100vh - 40px)', paddingBottom: '16px' }
+  appContainer: {
+    minHeight: '100vh',
+    backgroundColor: '#0F172A',
+    display: 'flex',
+    justifyContent: 'center',
+    alignItems: 'center',
+    fontFamily: "'Inter', sans-serif"
+  },
+  screenWrapper: {
+    width: '100%',
+    maxWidth: '440px',
+    minHeight: '100vh',
+    backgroundColor: '#F8FAFC',
+    boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.5)'
+  }
 };

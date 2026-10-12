@@ -1,26 +1,77 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
+import { supabase } from '../supabaseClient';
 
-/**
- * Project AGAP Batangas - Lively Citizen & Guest Dashboard
- */
-export default function DashboardScreen({ onNavigate, userRole = 'CITIZEN', onOpenProfile }) {
+export default function DashboardScreen({ onNavigate, userRole = 'GUEST', onOpenProfile }) {
+  const [userProfile, setUserProfile] = useState(null);
+  const [liveFeed, setLiveFeed] = useState([]);
+  const [isLoadingFeed, setIsLoadingFeed] = useState(false);
+
+  useEffect(() => {
+    fetchDeviceProfile();
+    fetchLiveHazardFeed();
+  }, [userRole]);
+
+  const fetchDeviceProfile = async () => {
+    const localDeviceId = localStorage.getItem('agap_device_id');
+    if (!localDeviceId) return;
+
+    try {
+      const { data } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('device_id', localDeviceId)
+        .maybeSingle();
+
+      if (data) setUserProfile(data);
+    } catch (err) {
+      console.log('No registered profile found for device.');
+    }
+  };
+
+  const fetchLiveHazardFeed = async () => {
+    setIsLoadingFeed(true);
+    try {
+      const { data, error } = await supabase
+        .from('reports')
+        .select('*')
+        .eq('status', 'APPROVED')
+        .order('created_at', { ascending: false })
+        .limit(5);
+
+      if (error) throw error;
+      if (data) setLiveFeed(data);
+    } catch (err) {
+      console.error('Feed error:', err.message);
+    } finally {
+      setIsLoadingFeed(false);
+    }
+  };
+
   const handleNav = (screenKey) => {
     if (typeof onNavigate === 'function') {
       onNavigate(screenKey);
     }
   };
 
-  const isGuest = userRole === 'GUEST';
+  // Strictly fallback to 'Visitor!' if user has not signed up details
+  const getGreetingName = () => {
+    if (userProfile && userProfile.full_name) {
+      return userProfile.full_name;
+    }
+    return 'Visitor!';
+  };
+
+  const isGuest = !userProfile || userProfile.verification_status !== 'VERIFIED';
 
   return (
     <div style={styles.container}>
-      {/* Lively Teal Gradient Banner Header (No Jumpscare Dark Card) */}
+      {/* Header Banner */}
       <div style={styles.vibrantHeaderCard}>
         <div style={styles.headerTopRow}>
           <div>
             <span style={styles.brandSub}>PROJECT AGAP BATANGAS</span>
             <h2 style={styles.greetingTitle}>
-              {isGuest ? 'Mabuhay, Visitor!' : 'Mabuhay, Juan!'}
+              Mabuhay, {getGreetingName()}
             </h2>
           </div>
 
@@ -40,7 +91,7 @@ export default function DashboardScreen({ onNavigate, userRole = 'CITIZEN', onOp
           <span style={isGuest ? styles.guestPill : styles.citizenPill}>
             {isGuest ? 'GUEST VISITOR MODE' : '✓ VERIFIED CITIZEN'}
           </span>
-          <span style={styles.locationText}>BSU Alangilan Campus Sector</span>
+          <span style={styles.locationText}>Batangas City Command Sector</span>
         </div>
       </div>
 
@@ -65,10 +116,9 @@ export default function DashboardScreen({ onNavigate, userRole = 'CITIZEN', onOp
         </button>
       </div>
 
-      {/* Main Core Functions */}
+      {/* Core Functions */}
       <div style={styles.sectionHeader}>Core Functions</div>
       <div style={styles.grid}>
-        {/* Submit Hazard */}
         <div style={styles.cardTeal} onClick={() => handleNav('submit-report')}>
           <div style={styles.cardIconBoxTeal}>
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#0F766E" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -81,7 +131,6 @@ export default function DashboardScreen({ onNavigate, userRole = 'CITIZEN', onOp
           <span style={styles.cardActionText}>Report Now &rarr;</span>
         </div>
 
-        {/* Hotlines */}
         <div style={styles.cardWhite} onClick={() => handleNav('hotlines')}>
           <div style={styles.cardIconBoxGray}>
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#0F766E" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -93,7 +142,6 @@ export default function DashboardScreen({ onNavigate, userRole = 'CITIZEN', onOp
           <span style={styles.cardActionText}>View Numbers &rarr;</span>
         </div>
 
-        {/* Danger Map */}
         <div style={styles.cardWhite} onClick={() => handleNav('danger-map')}>
           <div style={styles.cardIconBoxGray}>
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#0F766E" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -107,7 +155,6 @@ export default function DashboardScreen({ onNavigate, userRole = 'CITIZEN', onOp
           <span style={styles.cardActionText}>View Map &rarr;</span>
         </div>
 
-        {/* Tracker */}
         <div style={styles.cardWhite} onClick={() => handleNav('tracker')}>
           <div style={styles.cardIconBoxGray}>
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#0F766E" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -123,34 +170,33 @@ export default function DashboardScreen({ onNavigate, userRole = 'CITIZEN', onOp
         </div>
       </div>
 
-      {/* Live Hazard Feed */}
-      <div style={styles.sectionHeader}>Live Hazard Feed</div>
+      {/* Live Database Feed */}
+      <div style={styles.sectionHeader}>Live Approved Hazard Feed</div>
       <div style={styles.feedList}>
-        <div style={styles.feedCard}>
-          <div style={styles.feedCardTop}>
-            <span style={styles.badgeRed}>RIVER FLOOD WARNING</span>
-            <span style={styles.feedTime}>12m ago</span>
+        {isLoadingFeed ? (
+          <div style={styles.emptyFeedCard}>Fetching database updates...</div>
+        ) : liveFeed.length === 0 ? (
+          <div style={styles.emptyFeedCard}>
+            No active hazard alerts reported in Batangas City.
           </div>
-          <h4 style={styles.feedTitle}>Rising Water Level - Calumpang River</h4>
-          <p style={styles.feedText}>CDRRMO monitoring heavy rain overflow near Brgy. Kumintang Ibaba.</p>
-          <div style={styles.feedFooter}>
-            <span style={styles.feedLoc}>📍 Kumintang Ibaba</span>
-            <span style={styles.badgeGreen}>Responded</span>
-          </div>
-        </div>
-
-        <div style={styles.feedCard}>
-          <div style={styles.feedCardTop}>
-            <span style={styles.badgeOrange}>ROAD OBSTRUCTION</span>
-            <span style={styles.feedTime}>45m ago</span>
-          </div>
-          <h4 style={styles.feedTitle}>Fallen Tree - Alangilan Highway</h4>
-          <p style={styles.feedText}>Partial lane blockage near BSU entrance. Clearing crew en route.</p>
-          <div style={styles.feedFooter}>
-            <span style={styles.feedLoc}>📍 Brgy. Alangilan</span>
-            <span style={styles.badgeYellow}>In Progress</span>
-          </div>
-        </div>
+        ) : (
+          liveFeed.map((item) => (
+            <div key={item.id} style={styles.feedCard}>
+              <div style={styles.feedCardTop}>
+                <span style={styles.badgeRed}>{item.category || item.report_type || 'HAZARD'}</span>
+                <span style={styles.feedTime}>
+                  {item.created_at ? new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Recently'}
+                </span>
+              </div>
+              <h4 style={styles.feedTitle}>{item.report_type || item.title || item.category}</h4>
+              <p style={styles.feedText}>{item.description || item.details || 'No additional details provided.'}</p>
+              <div style={styles.feedFooter}>
+                <span style={styles.feedLoc}>📍 {item.location}</span>
+                <span style={styles.badgeGreen}>DISPATCHED</span>
+              </div>
+            </div>
+          ))
+        )}
       </div>
     </div>
   );
@@ -161,7 +207,7 @@ const styles = {
   vibrantHeaderCard: { background: 'linear-gradient(135deg, #0F766E 0%, #0D9488 100%)', borderRadius: '18px', padding: '16px', marginBottom: '18px', color: '#FFFFFF', boxShadow: '0 8px 20px rgba(15, 118, 110, 0.2)' },
   headerTopRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' },
   brandSub: { fontSize: '9px', fontWeight: '800', color: '#99F6E4', letterSpacing: '0.8px' },
-  greetingTitle: { fontSize: '20px', fontWeight: '800', color: '#FFFFFF', margin: '2px 0 0 0' },
+  greetingTitle: { fontSize: '18px', fontWeight: '800', color: '#FFFFFF', margin: '2px 0 0 0' },
   profileAvatarBtn: { width: '42px', height: '42px', borderRadius: '12px', backgroundColor: '#FFFFFF', border: 'none', display: 'flex', justifyContent: 'center', alignItems: 'center', cursor: 'pointer', boxShadow: '0 2px 6px rgba(0,0,0,0.1)' },
   headerBottomRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '10px', borderTop: '1px solid rgba(255, 255, 255, 0.2)' },
   citizenPill: { fontSize: '9px', fontWeight: '800', backgroundColor: '#DCFCE7', color: '#166534', padding: '3px 8px', borderRadius: '6px' },
@@ -183,15 +229,14 @@ const styles = {
   cardDesc: { fontSize: '10px', color: '#64748B', lineHeight: '1.3', margin: '0 0 8px 0' },
   cardActionText: { fontSize: '11px', fontWeight: '800', color: '#0F766E' },
   feedList: { display: 'flex', flexDirection: 'column', gap: '10px' },
+  emptyFeedCard: { backgroundColor: '#FFFFFF', border: '1px solid #CBD5E1', borderRadius: '10px', padding: '16px', textAlign: 'center', color: '#64748B', fontSize: '11px' },
   feedCard: { backgroundColor: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: '14px', padding: '12px' },
   feedCardTop: { display: 'flex', justifyContent: 'space-between', marginBottom: '6px' },
   badgeRed: { fontSize: '9px', fontWeight: '800', backgroundColor: '#FEF2F2', color: '#991B1B', padding: '2px 6px', borderRadius: '4px' },
-  badgeOrange: { fontSize: '9px', fontWeight: '800', backgroundColor: '#FFF7ED', color: '#C2410C', padding: '2px 6px', borderRadius: '4px' },
   feedTime: { fontSize: '10px', color: '#94A3B8' },
   feedTitle: { fontSize: '13px', fontWeight: '800', color: '#0F172A', margin: '0 0 4px 0' },
   feedText: { fontSize: '11px', color: '#475569', margin: '0 0 8px 0' },
   feedFooter: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '6px', borderTop: '1px solid #F1F5F9' },
   feedLoc: { fontSize: '10px', color: '#64748B' },
-  badgeGreen: { fontSize: '9px', fontWeight: '800', backgroundColor: '#DCFCE7', color: '#166534', padding: '2px 6px', borderRadius: '4px' },
-  badgeYellow: { fontSize: '9px', fontWeight: '800', backgroundColor: '#FEF3C7', color: '#92400E', padding: '2px 6px', borderRadius: '4px' }
+  badgeGreen: { fontSize: '9px', fontWeight: '800', backgroundColor: '#DCFCE7', color: '#166534', padding: '2px 6px', borderRadius: '4px' }
 };
