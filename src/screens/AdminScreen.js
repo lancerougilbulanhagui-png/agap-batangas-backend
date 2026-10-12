@@ -2,21 +2,26 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
 
 export default function AdminScreen({ onBack }) {
-  const [activeTab, setActiveTab] = useState('REPORTS'); // 'REPORTS' | 'USERS' | 'ANALYTICS'
+  const [activeTab, setActiveTab] = useState('REPORTS'); // 'REPORTS' | 'USERS' | 'MAP_ANALYTICS'
   const [reports, setReports] = useState([]);
   const [profiles, setProfiles] = useState([]);
-  const [userFilterTab, setUserFilterTab] = useState('PENDING'); // 'PENDING' | 'VERIFIED' | 'DELETED'
-  
-  // Image Inspection Modal State
-  const [inspectImage, setInspectImage] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Modals & Expanded View State
+  const [selectedReport, setSelectedReport] = useState(null); // Vertical Full Report Detail Modal
+  const [selectedUser, setSelectedUser] = useState(null);     // User Info Pop-up Modal
+  const [inspectImage, setInspectImage] = useState(null);     // Full Photo Zoom Modal
+
+  // User Filter Sub-Tabs
+  const [userFilterTab, setUserFilterTab] = useState('ALL'); // 'ALL' | 'VERIFIED' | 'GUEST' | 'DELETED'
 
   useEffect(() => {
     fetchAdminData();
   }, []);
 
   const fetchAdminData = async () => {
+    setIsLoading(true);
     try {
-      // Fetch Reports
       const { data: repData } = await supabase
         .from('reports')
         .select('*')
@@ -24,7 +29,6 @@ export default function AdminScreen({ onBack }) {
 
       if (repData) setReports(repData);
 
-      // Fetch Profiles
       const { data: profData } = await supabase
         .from('profiles')
         .select('*');
@@ -32,6 +36,8 @@ export default function AdminScreen({ onBack }) {
       if (profData) setProfiles(profData);
     } catch (err) {
       console.error('Admin fetch error:', err.message);
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -44,7 +50,10 @@ export default function AdminScreen({ onBack }) {
 
       if (error) throw error;
 
-      alert(`Report ${reportId} status updated to: ${newStatus}`);
+      alert(`Report ${reportId} stage updated to: ${newStatus}`);
+      if (selectedReport && selectedReport.id === reportId) {
+        setSelectedReport({ ...selectedReport, status: newStatus });
+      }
       fetchAdminData();
     } catch (err) {
       alert(`Update failed: ${err.message}`);
@@ -60,59 +69,60 @@ export default function AdminScreen({ onBack }) {
 
       if (error) throw error;
 
-      alert(`User verification status set to: ${newStatus}`);
+      alert(`User verification updated to: ${newStatus}`);
+      if (selectedUser && selectedUser.device_id === deviceId) {
+        setSelectedUser({ ...selectedUser, verification_status: newStatus });
+      }
       fetchAdminData();
     } catch (err) {
       alert(`Update failed: ${err.message}`);
     }
   };
 
-  // 2nd Verification: Purge All Deleted User Applications
-  const handlePurgeAllDeleted = async () => {
-    const deletedUsers = profiles.filter(p => p.verification_status === 'DELETED');
-    if (deletedUsers.length === 0) {
-      alert('No deleted applications to purge.');
-      return;
-    }
+  // Calculate Monthly Submission Trend from Actual Supabase Database Timestamps
+  const getMonthlySubmissionCounts = () => {
+    const monthCounts = { Jan: 0, Feb: 0, Mar: 0, Apr: 0, May: 0, Jun: 0, Jul: 0, Aug: 0, Sep: 0, Oct: 0, Nov: 0, Dec: 0 };
+    const monthKeys = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-    if (window.confirm(`[2nd Verification Check] Are you sure you want to permanently purge all ${deletedUsers.length} deleted application records?`)) {
-      try {
-        const { error } = await supabase
-          .from('profiles')
-          .delete()
-          .eq('verification_status', 'DELETED');
-
-        if (error) throw error;
-
-        alert('✓ All deleted applications permanently purged.');
-        fetchAdminData();
-      } catch (err) {
-        alert(`Purge failed: ${err.message}`);
+    reports.forEach((rep) => {
+      if (rep.created_at) {
+        const d = new Date(rep.created_at);
+        const monthName = monthKeys[d.getMonth()];
+        if (monthCounts[monthName] !== undefined) {
+          monthCounts[monthName] += 1;
+        }
       }
-    }
+    });
+
+    return monthKeys.map((m) => ({ month: m, count: monthCounts[m] }));
   };
 
-  const filteredProfiles = profiles.filter(p => {
+  const approvedReports = reports.filter((r) => r.status === 'APPROVED');
+  const monthlyData = getMonthlySubmissionCounts();
+  const maxMonthlyCount = Math.max(...monthlyData.map((d) => d.count), 5);
+
+  const filteredProfiles = profiles.filter((p) => {
     const status = p.verification_status || 'PENDING';
     if (userFilterTab === 'VERIFIED') return status === 'VERIFIED';
+    if (userFilterTab === 'GUEST') return status !== 'VERIFIED' && status !== 'DELETED';
     if (userFilterTab === 'DELETED') return status === 'DELETED';
-    return status === 'PENDING';
+    return true;
   });
 
   return (
     <div style={styles.container}>
-      {/* Navigation Header */}
+      {/* Portal Header */}
       <div style={styles.navHeader}>
         <button style={styles.backBtn} onClick={onBack}>
           &lt; Back
         </button>
         <div>
           <h2 style={styles.headerTitle}>CDRRMO Command Portal</h2>
-          <div style={styles.headerSub}>Admin Disaster Control & Moderation</div>
+          <div style={styles.headerSub}>Admin Operations & Moderation</div>
         </div>
       </div>
 
-      {/* Main Tab Navigation */}
+      {/* Primary Navigation Tabs */}
       <div style={styles.tabRow}>
         <button
           style={activeTab === 'REPORTS' ? styles.tabActive : styles.tabInactive}
@@ -124,239 +134,344 @@ export default function AdminScreen({ onBack }) {
           style={activeTab === 'USERS' ? styles.tabActive : styles.tabInactive}
           onClick={() => setActiveTab('USERS')}
         >
-          User Verification
+          User Moderation ({profiles.length})
         </button>
         <button
-          style={activeTab === 'ANALYTICS' ? styles.tabActive : styles.tabInactive}
-          onClick={() => setActiveTab('ANALYTICS')}
+          style={activeTab === 'MAP_ANALYTICS' ? styles.tabActive : styles.tabInactive}
+          onClick={() => setActiveTab('MAP_ANALYTICS')}
         >
-          Monthly Trends
+          Map & Analytics
         </button>
       </div>
 
       {/* 1. REPORT MODERATION TAB */}
       {activeTab === 'REPORTS' && (
         <div style={styles.sectionStack}>
-          <div style={styles.sectionTitle}>Incident Reports Stream</div>
+          <div style={styles.sectionTitle}>Incoming Reports (Click card for full details)</div>
+          
           {reports.length === 0 ? (
-            <div style={styles.emptyCard}>No hazard reports submitted yet.</div>
+            <div style={styles.emptyCard}>No hazard reports submitted in database.</div>
           ) : (
             reports.map((rep) => (
-              <div key={rep.id || rep.ticket_no || 'report'} style={styles.reportCard}>
-                <div style={styles.cardHeader}>
+              <div
+                key={rep.id || rep.report_id || rep._id || rep.ticket_no || 'report'}
+                style={styles.compactReportCard}
+                onClick={() => setSelectedReport(rep)}
+              >
+                <div style={styles.compactHeaderRow}>
                   <span style={styles.ticketBadge}>{rep.ticket_no || rep.id || 'TICKET'}</span>
-                  <span style={styles.severityTag}>{rep.severity || 'UNKNOWN'}</span>
+                  <span style={getStatusBadgeStyle(rep.status)}>{rep.status || 'PENDING'}</span>
                 </div>
-
-                <h4 style={styles.reportTitle}>{rep.hazard_type || rep.category}</h4>
-                <div style={styles.reportMeta}>Location: {rep.location}</div>
-                <div style={styles.reportMeta}>Status: <strong>{rep.status || 'PENDING'}</strong></div>
-                <p style={styles.reportDesc}>{rep.description}</p>
-
-                {/* Submitted Photo Evidence with Click-to-Inspect Modal */}
-                {rep.proof_photos && (
-                  <div style={styles.photoContainer}>
-                    <span style={styles.photoLabel}>Attached Evidence (Click to Inspect):</span>
-                    <img
-                      src={rep.proof_photos}
-                      alt="Hazard Evidence"
-                      style={styles.clickableThumbnail}
-                      onClick={() => setInspectImage(rep.proof_photos)}
-                    />
-                  </div>
-                )}
-
-                {/* Status Action Buttons */}
-                <div style={styles.actionBtnGroup}>
-                  <button
-                    style={styles.btnApprove}
-                    onClick={() => handleUpdateReportStatus(rep.id, 'APPROVED')}
-                  >
-                    Approve
-                  </button>
-                  <button
-                    style={styles.btnDispatch}
-                    onClick={() => handleUpdateReportStatus(rep.id, 'DISPATCHED')}
-                  >
-                    Dispatch Unit
-                  </button>
-                  <button
-                    style={styles.btnResolve}
-                    onClick={() => handleUpdateReportStatus(rep.id, 'RESOLVED')}
-                  >
-                    Resolve
-                  </button>
-                  <button
-                    style={styles.btnDelete}
-                    onClick={() => handleUpdateReportStatus(rep.id, 'DELETED')}
-                  >
-                    Delete
-                  </button>
-                </div>
+                <h4 style={styles.compactReportTitle}>{rep.hazard_type || rep.category || 'Hazard Alert'}</h4>
+                <p style={styles.compactReportDesc}>
+                  {rep.description ? (rep.description.length > 60 ? `${rep.description.substring(0, 60)}...` : rep.description) : 'No description provided.'}
+                </p>
+                <div style={styles.compactTapHint}>Tap to view all submitted info & judge stage &rarr;</div>
               </div>
             ))
           )}
         </div>
       )}
 
-      {/* 2. COMPACT USER VERIFICATION TAB */}
+      {/* 2. USER MODERATION TAB */}
       {activeTab === 'USERS' && (
         <div style={styles.sectionStack}>
-          {/* Sub-Filter Tabs */}
+          {/* Sub Filter Chips */}
           <div style={styles.subTabRow}>
-            <button
-              style={userFilterTab === 'PENDING' ? styles.subTabActive : styles.subTabInactive}
-              onClick={() => setUserFilterTab('PENDING')}
-            >
-              Pending
-            </button>
-            <button
-              style={userFilterTab === 'VERIFIED' ? styles.subTabActive : styles.subTabInactive}
-              onClick={() => setUserFilterTab('VERIFIED')}
-            >
-              Approved
-            </button>
-            <button
-              style={userFilterTab === 'DELETED' ? styles.subTabActive : styles.subTabInactive}
-              onClick={() => setUserFilterTab('DELETED')}
-            >
-              Deleted
-            </button>
+            {['ALL', 'VERIFIED', 'GUEST', 'DELETED'].map((f) => (
+              <button
+                key={f}
+                style={userFilterTab === f ? styles.subTabActive : styles.subTabInactive}
+                onClick={() => setUserFilterTab(f)}
+              >
+                {f}
+              </button>
+            ))}
           </div>
 
-          {userFilterTab === 'DELETED' && (
-            <button style={styles.purgeBtn} onClick={handlePurgeAllDeleted}>
-              Purge All Deleted Applications (2nd Verification)
-            </button>
-          )}
-
-          {/* Compact Space-Saving User Table */}
           <div style={styles.compactUserList}>
             {filteredProfiles.length === 0 ? (
-              <div style={styles.emptyCard}>No user applications in this folder.</div>
+              <div style={styles.emptyCard}>No user records matching filter.</div>
             ) : (
-              filteredProfiles.map((user) => (
-                <div key={user.device_id || user.id || user.username || 'user'} style={styles.compactUserRow}>
-                  <div style={styles.userInfoCol}>
-                    <div style={styles.userNameText}>@{user.username || 'Unregistered'}</div>
-                    <div style={styles.userDeviceText}>Device: {user.device_id}</div>
+              filteredProfiles.map((u) => {
+                const userReports = reports.filter((r) => r.device_id === u.device_id);
+                const isVerified = u.verification_status === 'VERIFIED';
+
+                return (
+                  <div
+                    key={u.device_id || u.username || 'user'}
+                    style={styles.compactUserRow}
+                    onClick={() => setSelectedUser(u)}
+                  >
+                    <div style={styles.userInfoLeft}>
+                      <div style={styles.userNameText}>@{u.username || 'GuestUser'}</div>
+                      <div style={styles.userDeviceSub}>ID: {u.device_id}</div>
+                    </div>
+
+                    <div style={styles.userInfoRight}>
+                      <span style={isVerified ? styles.badgeGreen : styles.badgeOrange}>
+                        {isVerified ? 'VERIFIED' : 'GUEST'}
+                      </span>
+                      <span style={styles.activityDotText}>• Online Activity</span>
+                      <span style={styles.reportCountText}>
+                        Reports: {userReports.length}
+                      </span>
+                    </div>
                   </div>
-
-                  <div style={styles.userActionsCol}>
-                    {userFilterTab === 'PENDING' && (
-                      <>
-                        <button
-                          style={styles.btnMiniVerify}
-                          onClick={() => handleUpdateUserStatus(user.device_id, 'VERIFIED')}
-                        >
-                          Approve
-                        </button>
-                        <button
-                          style={styles.btnMiniDelete}
-                          onClick={() => handleUpdateUserStatus(user.device_id, 'DELETED')}
-                        >
-                          Reject
-                        </button>
-                      </>
-                    )}
-
-                    {userFilterTab === 'VERIFIED' && (
-                      <span style={styles.verifiedPill}>VERIFIED</span>
-                    )}
-
-                    {userFilterTab === 'DELETED' && (
-                      <span style={styles.deletedPill}>ARCHIVED</span>
-                    )}
-                  </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </div>
       )}
 
-      {/* 3. MONTHLY ANALYTICS TREND GRAPH */}
-      {activeTab === 'ANALYTICS' && (
+      {/* 3. COMBINED DANGER MAP & REAL ANALYTICS TAB */}
+      {activeTab === 'MAP_ANALYTICS' && (
         <div style={styles.sectionStack}>
-          <div style={styles.sectionTitle}>Monthly Incident Volume Trends (2026)</div>
-          
+          {/* Citizen-style Approved Danger Map */}
+          <div style={styles.sectionTitle}>Live Approved Danger Zone Map (Citizen View)</div>
+          <div style={styles.mapCard}>
+            <div style={styles.mapHeaderRow}>
+              <span style={styles.mapScopeTag}>Showing {approvedReports.length} Approved Hazards</span>
+            </div>
+            <iframe
+              title="Admin Danger Map View"
+              width="100%"
+              height="200"
+              frameBorder="0"
+              scrolling="no"
+              src="[suspicious link removed]13.7565,121.0583&t=m&z=14&ie=UTF8&iwloc=&output=embed"
+              style={styles.mapIframe}
+            ></iframe>
+          </div>
+
+          {/* Real Monthly Trends Chart */}
+          <div style={styles.sectionTitle}>Real Monthly Submission Trends (Live Database)</div>
           <div style={styles.chartCard}>
-            {/* SVG Line & Area Graph */}
-            <svg viewBox="0 0 360 180" style={styles.svgChart}>
-              <defs>
-                <linearGradient id="chartGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#0F766E" stopOpacity="0.4" />
-                  <stop offset="100%" stopColor="#0F766E" stopOpacity="0.0" />
-                </linearGradient>
-              </defs>
+            <div style={styles.chartTitleRow}>
+              <span>Submissions per Month (2026)</span>
+              <span style={styles.chartTotalBadge}>Total: {reports.length}</span>
+            </div>
 
-              {/* Grid Lines */}
-              <line x1="30" y1="30" x2="340" y2="30" stroke="#E2E8F0" strokeWidth="1" />
-              <line x1="30" y1="70" x2="340" y2="70" stroke="#E2E8F0" strokeWidth="1" />
-              <line x1="30" y1="110" x2="340" y2="110" stroke="#E2E8F0" strokeWidth="1" />
-              <line x1="30" y1="150" x2="340" y2="150" stroke="#CBD5E1" strokeWidth="1.5" />
+            <div style={styles.barGraphContainer}>
+              {monthlyData.map((m) => {
+                const heightPct = Math.max((m.count / maxMonthlyCount) * 100, 8);
+                return (
+                  <div key={m.month} style={styles.barCol}>
+                    <div style={styles.barValueLabel}>{m.count > 0 ? m.count : ''}</div>
+                    <div style={styles.barTrack}>
+                      <div style={{ ...styles.barFill, height: `${heightPct}%` }}></div>
+                    </div>
+                    <div style={styles.barMonthLabel}>{m.month}</div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
 
-              {/* Area Fill */}
-              <path
-                d="M30 150 L30 120 Q 80 140, 110 90 T 190 70 T 270 40 T 340 80 L340 150 Z"
-                fill="url(#chartGrad)"
-              />
+      {/* VERTICAL FULL REPORT DETAIL MODAL */}
+      {selectedReport && (
+        <div style={styles.modalBackdrop} onClick={() => setSelectedReport(null)}>
+          <div style={styles.modalContent} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.modalHeader}>
+              <span style={styles.modalTitle}>Full Report Details</span>
+              <button style={styles.modalCloseBtn} onClick={() => setSelectedReport(null)}>Close X</button>
+            </div>
 
-              {/* Trend Line */}
-              <path
-                d="M30 120 Q 80 140, 110 90 T 190 70 T 270 40 T 340 80"
-                fill="none"
-                stroke="#0F766E"
-                strokeWidth="3"
-                strokeLinecap="round"
-              />
-
-              {/* Data Points */}
-              <circle cx="30" cy="120" r="4" fill="#0F766E" />
-              <circle cx="110" cy="90" r="4" fill="#0F766E" />
-              <circle cx="190" cy="70" r="4" fill="#0F766E" />
-              <circle cx="270" cy="40" r="5" fill="#DC2626" />
-              <circle cx="340" cy="80" r="4" fill="#0F766E" />
-
-              {/* Month Labels */}
-              <text x="25" y="166" fontSize="9" fill="#64748B">Jan</text>
-              <text x="80" y="166" fontSize="9" fill="#64748B">Mar</text>
-              <text x="140" y="166" fontSize="9" fill="#64748B">May</text>
-              <text x="200" y="166" fontSize="9" fill="#64748B">Jul</text>
-              <text x="260" y="166" fontSize="9" fill="#64748B">Sep</text>
-              <text x="325" y="166" fontSize="9" fill="#64748B">Nov</text>
-            </svg>
-
-            <div style={styles.chartLegendRow}>
-              <div style={styles.legendItem}>
-                <span style={{ ...styles.legendDot, backgroundColor: '#0F766E' }}></span>
-                <span>Incident Trend Line</span>
+            <div style={styles.verticalDetailStack}>
+              <div style={styles.detailItem}>
+                <span style={styles.detailLabel}>TICKET REFERENCE NUMBER</span>
+                <span style={styles.detailValueBold}>{selectedReport.ticket_no || selectedReport.id || 'N/A'}</span>
               </div>
-              <div style={styles.legendItem}>
-                <span style={{ ...styles.legendDot, backgroundColor: '#DC2626' }}></span>
-                <span>Peak Rainy Season</span>
+
+              <div style={styles.detailItem}>
+                <span style={styles.detailLabel}>HAZARD TYPE / CATEGORY</span>
+                <span style={styles.detailValue}>{selectedReport.hazard_type || selectedReport.category}</span>
+              </div>
+
+              <div style={styles.detailItem}>
+                <span style={styles.detailLabel}>SEVERITY URGENCY LEVEL</span>
+                <span style={styles.detailValueBadge}>{selectedReport.severity || 'MODERATE'}</span>
+              </div>
+
+              <div style={styles.detailItem}>
+                <span style={styles.detailLabel}>LOCATION DETAILS</span>
+                <span style={styles.detailValue}>{selectedReport.location}</span>
+              </div>
+
+              <div style={styles.detailItem}>
+                <span style={styles.detailLabel}>PINNED GPS COORDINATES</span>
+                <span style={styles.detailValue}>{selectedReport.coordinates || 'N/A'}</span>
+              </div>
+
+              <div style={styles.detailItem}>
+                <span style={styles.detailLabel}>DESCRIPTION & REMARKS</span>
+                <p style={styles.detailTextBody}>{selectedReport.description || 'No description provided.'}</p>
+              </div>
+
+              {selectedReport.proof_photos && (
+                <div style={styles.detailItem}>
+                  <span style={styles.detailLabel}>ATTACHED EVIDENCE PHOTO</span>
+                  <img
+                    src={selectedReport.proof_photos}
+                    alt="Submitted Evidence"
+                    style={styles.detailPhotoThumb}
+                    onClick={() => setInspectImage(selectedReport.proof_photos)}
+                  />
+                </div>
+              )}
+
+              <div style={styles.detailItem}>
+                <span style={styles.detailLabel}>SENDER DEVICE FINGERPRINT</span>
+                <span style={styles.detailValue}>{selectedReport.device_id || 'GUEST-DEV'}</span>
+              </div>
+
+              <div style={styles.detailItem}>
+                <span style={styles.detailLabel}>SUBMISSION TIMESTAMP</span>
+                <span style={styles.detailValue}>{selectedReport.created_at ? new Date(selectedReport.created_at).toLocaleString() : 'Recently'}</span>
+              </div>
+
+              {/* Stage Judgment Actions */}
+              <div style={styles.stageJudgeBox}>
+                <span style={styles.stageJudgeTitle}>PROCEED TO NEXT OPERATIONAL STAGE:</span>
+                <div style={styles.stageBtnRow}>
+                  <button
+                    style={styles.btnStageApprove}
+                    onClick={() => handleUpdateReportStatus(selectedReport.id, 'APPROVED')}
+                  >
+                    Approve (Map Pin)
+                  </button>
+                  <button
+                    style={styles.btnStageInvestigate}
+                    onClick={() => handleUpdateReportStatus(selectedReport.id, 'UNDER_INVESTIGATION')}
+                  >
+                    Investigate
+                  </button>
+                  <button
+                    style={styles.btnStageReject}
+                    onClick={() => handleUpdateReportStatus(selectedReport.id, 'REJECTED')}
+                  >
+                    Reject
+                  </button>
+                  <button
+                    style={styles.btnStageDelete}
+                    onClick={() => handleUpdateReportStatus(selectedReport.id, 'DELETED')}
+                  >
+                    Delete
+                  </button>
+                </div>
               </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* FULL SCREEN PHOTO INSPECTION MODAL */}
+      {/* USER DETAIL POP-UP MODAL */}
+      {selectedUser && (
+        <div style={styles.modalBackdrop} onClick={() => setSelectedUser(null)}>
+          <div style={styles.modalContent} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.modalHeader}>
+              <span style={styles.modalTitle}>User Account & Submissions</span>
+              <button style={styles.modalCloseBtn} onClick={() => setSelectedUser(null)}>Close X</button>
+            </div>
+
+            <div style={styles.verticalDetailStack}>
+              <div style={styles.detailItem}>
+                <span style={styles.detailLabel}>USERNAME</span>
+                <span style={styles.detailValueBold}>@{selectedUser.username || 'Unregistered'}</span>
+              </div>
+
+              <div style={styles.detailItem}>
+                <span style={styles.detailLabel}>FULL LEGAL NAME</span>
+                <span style={styles.detailValue}>{selectedUser.full_name || 'Not Provided'}</span>
+              </div>
+
+              <div style={styles.detailItem}>
+                <span style={styles.detailLabel}>MOBILE PHONE</span>
+                <span style={styles.detailValue}>{selectedUser.mobile_phone || 'N/A'}</span>
+              </div>
+
+              <div style={styles.detailItem}>
+                <span style={styles.detailLabel}>BARANGAY RESIDENCY</span>
+                <span style={styles.detailValue}>{selectedUser.barangay || 'Batangas City'}</span>
+              </div>
+
+              <div style={styles.detailItem}>
+                <span style={styles.detailLabel}>DEVICE ID FINGERPRINT</span>
+                <span style={styles.detailValue}>{selectedUser.device_id}</span>
+              </div>
+
+              <div style={styles.detailItem}>
+                <span style={styles.detailLabel}>VERIFICATION STATUS</span>
+                <span style={styles.detailValueBadge}>{selectedUser.verification_status || 'GUEST / PENDING'}</span>
+              </div>
+
+              {selectedUser.id_proof_photo && (
+                <div style={styles.detailItem}>
+                  <span style={styles.detailLabel}>ID PROOF PHOTO</span>
+                  <img
+                    src={selectedUser.id_proof_photo}
+                    alt="User ID Proof"
+                    style={styles.detailPhotoThumb}
+                    onClick={() => setInspectImage(selectedUser.id_proof_photo)}
+                  />
+                </div>
+              )}
+
+              <div style={styles.detailItem}>
+                <span style={styles.detailLabel}>SUBMITTED HAZARD REPORTS</span>
+                <span style={styles.detailValue}>
+                  {reports.filter((r) => r.device_id === selectedUser.device_id).length} Reports Total
+                </span>
+              </div>
+
+              {/* Moderation Actions */}
+              <div style={styles.stageJudgeBox}>
+                <span style={styles.stageJudgeTitle}>VERIFICATION ACTIONS:</span>
+                <div style={styles.stageBtnRow}>
+                  <button
+                    style={styles.btnStageApprove}
+                    onClick={() => handleUpdateUserStatus(selectedUser.device_id, 'VERIFIED')}
+                  >
+                    Approve Citizen
+                  </button>
+                  <button
+                    style={styles.btnStageDelete}
+                    onClick={() => handleUpdateUserStatus(selectedUser.device_id, 'DELETED')}
+                  >
+                    Reject / Delete
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* FULL PHOTO ZOOM MODAL */}
       {inspectImage && (
         <div style={styles.modalBackdrop} onClick={() => setInspectImage(null)}>
           <div style={styles.modalContent} onClick={(e) => e.stopPropagation()}>
             <div style={styles.modalHeader}>
-              <span style={styles.modalTitle}>Photo Evidence Inspection</span>
-              <button style={styles.modalCloseBtn} onClick={() => setInspectImage(null)}>
-                Close X
-              </button>
+              <span style={styles.modalTitle}>Inspect Full Image</span>
+              <button style={styles.modalCloseBtn} onClick={() => setInspectImage(null)}>Close X</button>
             </div>
-            <img src={inspectImage} alt="Full Size Evidence" style={styles.fullModalImg} />
+            <img src={inspectImage} alt="Full Zoom Evidence" style={styles.fullModalImg} />
           </div>
         </div>
       )}
     </div>
   );
+}
+
+function getStatusBadgeStyle(status) {
+  const s = (status || 'PENDING').toUpperCase();
+  if (s === 'APPROVED') return styles.badgeGreen;
+  if (s === 'UNDER_INVESTIGATION') return styles.badgeYellow;
+  if (s === 'REJECTED' || s === 'DELETED') return styles.badgeRed;
+  return styles.badgeOrange;
 }
 
 const styles = {
@@ -366,49 +481,64 @@ const styles = {
   headerTitle: { fontSize: '18px', fontWeight: '800', color: '#0F172A', margin: 0 },
   headerSub: { fontSize: '11px', color: '#64748B' },
   tabRow: { display: 'flex', gap: '4px', backgroundColor: '#E2E8F0', padding: '3px', borderRadius: '8px', marginBottom: '14px' },
-  tabActive: { flex: 1, padding: '8px', backgroundColor: '#0F766E', color: '#FFFFFF', border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: '800', cursor: 'pointer' },
-  tabInactive: { flex: 1, padding: '8px', backgroundColor: 'transparent', color: '#475569', border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: '700', cursor: 'pointer' },
+  tabActive: { flex: 1, padding: '8px', backgroundColor: '#0F766E', color: '#FFFFFF', border: 'none', borderRadius: '6px', fontSize: '10px', fontWeight: '800', cursor: 'pointer' },
+  tabInactive: { flex: 1, padding: '8px', backgroundColor: 'transparent', color: '#475569', border: 'none', borderRadius: '6px', fontSize: '10px', fontWeight: '700', cursor: 'pointer' },
   sectionStack: { display: 'flex', flexDirection: 'column', gap: '10px' },
-  sectionTitle: { fontSize: '12px', fontWeight: '800', color: '#475569', textTransform: 'uppercase' },
+  sectionTitle: { fontSize: '11px', fontWeight: '800', color: '#475569', textTransform: 'uppercase' },
   emptyCard: { backgroundColor: '#FFFFFF', border: '1px solid #CBD5E1', padding: '16px', borderRadius: '8px', textAlign: 'center', color: '#64748B', fontSize: '11px' },
-  reportCard: { backgroundColor: '#FFFFFF', border: '1px solid #CBD5E1', borderRadius: '10px', padding: '12px' },
-  cardHeader: { display: 'flex', justifyContent: 'space-between', marginBottom: '6px' },
-  ticketBadge: { fontSize: '10px', fontWeight: '800', backgroundColor: '#CCFBF1', color: '#0F766E', padding: '2px 6px', borderRadius: '4px' },
-  severityTag: { fontSize: '10px', fontWeight: '800', backgroundColor: '#FEE2E2', color: '#991B1B', padding: '2px 6px', borderRadius: '4px' },
-  reportTitle: { fontSize: '13px', fontWeight: '800', color: '#0F172A', margin: '2px 0' },
-  reportMeta: { fontSize: '10px', color: '#64748B' },
-  reportDesc: { fontSize: '11px', color: '#334155', margin: '6px 0', lineHeight: '1.3' },
-  photoContainer: { marginTop: '8px', paddingTop: '8px', borderTop: '1px solid #F1F5F9' },
-  photoLabel: { fontSize: '9px', fontWeight: '800', color: '#0F766E', display: 'block', marginBottom: '4px' },
-  clickableThumbnail: { width: '80px', height: '60px', objectFit: 'cover', borderRadius: '6px', border: '2px solid #0F766E', cursor: 'pointer' },
-  actionBtnGroup: { display: 'flex', gap: '4px', marginTop: '10px' },
-  btnApprove: { flex: 1, padding: '6px', backgroundColor: '#DCFCE7', border: '1px solid #86EFAC', color: '#166534', borderRadius: '4px', fontSize: '10px', fontWeight: '800', cursor: 'pointer' },
-  btnDispatch: { flex: 1, padding: '6px', backgroundColor: '#FEF3C7', border: '1px solid #FDE047', color: '#854D0E', borderRadius: '4px', fontSize: '10px', fontWeight: '800', cursor: 'pointer' },
-  btnResolve: { flex: 1, padding: '6px', backgroundColor: '#CCFBF1', border: '1px solid #99F6E4', color: '#0F766E', borderRadius: '4px', fontSize: '10px', fontWeight: '800', cursor: 'pointer' },
-  btnDelete: { flex: 1, padding: '6px', backgroundColor: '#FEE2E2', border: '1px solid #FCA5A5', color: '#991B1B', borderRadius: '4px', fontSize: '10px', fontWeight: '800', cursor: 'pointer' },
-  subTabRow: { display: 'flex', gap: '6px', marginBottom: '10px' },
-  subTabActive: { padding: '6px 12px', backgroundColor: '#0F766E', color: '#FFFFFF', border: 'none', borderRadius: '6px', fontSize: '10px', fontWeight: '800', cursor: 'pointer' },
-  subTabInactive: { padding: '6px 12px', backgroundColor: '#E2E8F0', color: '#475569', border: 'none', borderRadius: '6px', fontSize: '10px', fontWeight: '600', cursor: 'pointer' },
-  purgeBtn: { width: '100%', padding: '8px', backgroundColor: '#991B1B', color: '#FFFFFF', border: 'none', borderRadius: '6px', fontSize: '10px', fontWeight: '800', cursor: 'pointer', marginBottom: '10px' },
+  compactReportCard: { backgroundColor: '#FFFFFF', border: '1px solid #CBD5E1', borderRadius: '10px', padding: '10px', cursor: 'pointer' },
+  compactHeaderRow: { display: 'flex', justifyContent: 'space-between', marginBottom: '4px' },
+  ticketBadge: { fontSize: '9px', fontWeight: '800', backgroundColor: '#CCFBF1', color: '#0F766E', padding: '2px 6px', borderRadius: '4px' },
+  compactReportTitle: { fontSize: '13px', fontWeight: '800', color: '#0F172A', margin: '2px 0' },
+  compactReportDesc: { fontSize: '11px', color: '#475569', margin: '2px 0 6px 0' },
+  compactTapHint: { fontSize: '9px', fontWeight: '800', color: '#0F766E' },
+  subTabRow: { display: 'flex', gap: '4px', marginBottom: '8px' },
+  subTabActive: { padding: '4px 8px', backgroundColor: '#0F766E', color: '#FFFFFF', border: 'none', borderRadius: '4px', fontSize: '9px', fontWeight: '800', cursor: 'pointer' },
+  subTabInactive: { padding: '4px 8px', backgroundColor: '#E2E8F0', color: '#475569', border: 'none', borderRadius: '4px', fontSize: '9px', fontWeight: '600', cursor: 'pointer' },
   compactUserList: { display: 'flex', flexDirection: 'column', gap: '6px' },
-  compactUserRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#FFFFFF', border: '1px solid #CBD5E1', padding: '8px 10px', borderRadius: '6px' },
-  userInfoCol: { display: 'flex', flexDirection: 'column' },
+  compactUserRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#FFFFFF', border: '1px solid #CBD5E1', padding: '8px 10px', borderRadius: '8px', cursor: 'pointer' },
+  userInfoLeft: { display: 'flex', flexDirection: 'column' },
   userNameText: { fontSize: '12px', fontWeight: '800', color: '#0F172A' },
-  userDeviceText: { fontSize: '9px', color: '#64748B' },
-  userActionsCol: { display: 'flex', gap: '4px', alignItems: 'center' },
-  btnMiniVerify: { padding: '4px 8px', backgroundColor: '#166534', color: '#FFFFFF', border: 'none', borderRadius: '4px', fontSize: '10px', fontWeight: '800', cursor: 'pointer' },
-  btnMiniDelete: { padding: '4px 8px', backgroundColor: '#991B1B', color: '#FFFFFF', border: 'none', borderRadius: '4px', fontSize: '10px', fontWeight: '800', cursor: 'pointer' },
-  verifiedPill: { fontSize: '9px', fontWeight: '800', color: '#166534', backgroundColor: '#DCFCE7', padding: '2px 6px', borderRadius: '4px' },
-  deletedPill: { fontSize: '9px', fontWeight: '800', color: '#991B1B', backgroundColor: '#FEE2E2', padding: '2px 6px', borderRadius: '4px' },
+  userDeviceSub: { fontSize: '9px', color: '#64748B' },
+  userInfoRight: { display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '2px' },
+  activityDotText: { fontSize: '9px', color: '#166534', fontWeight: '700' },
+  reportCountText: { fontSize: '9px', color: '#64748B' },
+  badgeGreen: { fontSize: '8px', fontWeight: '800', backgroundColor: '#DCFCE7', color: '#166534', padding: '2px 5px', borderRadius: '4px' },
+  badgeOrange: { fontSize: '8px', fontWeight: '800', backgroundColor: '#FFEDD5', color: '#C2410C', padding: '2px 5px', borderRadius: '4px' },
+  badgeYellow: { fontSize: '8px', fontWeight: '800', backgroundColor: '#FEF3C7', color: '#92400E', padding: '2px 5px', borderRadius: '4px' },
+  badgeRed: { fontSize: '8px', fontWeight: '800', backgroundColor: '#FEE2E2', color: '#991B1B', padding: '2px 5px', borderRadius: '4px' },
+  mapCard: { backgroundColor: '#FFFFFF', border: '1px solid #CBD5E1', borderRadius: '10px', padding: '8px', marginBottom: '10px' },
+  mapHeaderRow: { marginBottom: '6px' },
+  mapScopeTag: { fontSize: '9px', fontWeight: '800', color: '#0F766E', backgroundColor: '#CCFBF1', padding: '2px 6px', borderRadius: '4px' },
+  mapIframe: { borderRadius: '6px', border: '1px solid #CBD5E1', display: 'block' },
   chartCard: { backgroundColor: '#FFFFFF', border: '1px solid #CBD5E1', borderRadius: '10px', padding: '12px' },
-  svgChart: { width: '100%', height: 'auto' },
-  chartLegendRow: { display: 'flex', gap: '16px', justifyContent: 'center', marginTop: '10px', fontSize: '10px', color: '#475569' },
-  legendItem: { display: 'flex', alignItems: 'center', gap: '4px' },
-  legendDot: { width: '8px', height: '8px', borderRadius: '50%' },
-  modalBackdrop: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.8)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '16px' },
-  modalContent: { backgroundColor: '#FFFFFF', borderRadius: '12px', padding: '12px', maxWidth: '380px', width: '100%' },
-  modalHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' },
-  modalTitle: { fontSize: '12px', fontWeight: '800', color: '#0F172A' },
+  chartTitleRow: { display: 'flex', justifyContent: 'space-between', fontSize: '11px', fontWeight: '800', color: '#0F172A', marginBottom: '10px' },
+  chartTotalBadge: { fontSize: '9px', backgroundColor: '#CCFBF1', color: '#0F766E', padding: '2px 6px', borderRadius: '4px' },
+  barGraphContainer: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', height: '120px', paddingTop: '10px', borderBottom: '1px solid #CBD5E1' },
+  barCol: { display: 'flex', flexDirection: 'column', alignItems: 'center', flex: 1 },
+  barValueLabel: { fontSize: '8px', fontWeight: '800', color: '#0F766E', height: '12px' },
+  barTrack: { width: '8px', height: '80px', backgroundColor: '#F1F5F9', borderRadius: '4px', display: 'flex', alignItems: 'flex-end', overflow: 'hidden' },
+  barFill: { width: '100%', backgroundColor: '#0F766E', borderRadius: '4px' },
+  barMonthLabel: { fontSize: '8px', color: '#64748B', marginTop: '4px' },
+  modalBackdrop: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.7)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '16px' },
+  modalContent: { backgroundColor: '#FFFFFF', borderRadius: '12px', padding: '14px', maxWidth: '380px', width: '100%', maxHeight: '85vh', overflowY: 'auto' },
+  modalHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' },
+  modalTitle: { fontSize: '13px', fontWeight: '800', color: '#0F172A' },
   modalCloseBtn: { backgroundColor: '#F1F5F9', border: 'none', padding: '4px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: '800', cursor: 'pointer', color: '#475569' },
+  verticalDetailStack: { display: 'flex', flexDirection: 'column', gap: '10px' },
+  detailItem: { display: 'flex', flexDirection: 'column', borderBottom: '1px solid #F1F5F9', paddingBottom: '6px' },
+  detailLabel: { fontSize: '8px', fontWeight: '800', color: '#64748B', letterSpacing: '0.5px' },
+  detailValueBold: { fontSize: '12px', fontWeight: '800', color: '#0F766E' },
+  detailValue: { fontSize: '11px', color: '#0F172A', fontWeight: '600' },
+  detailValueBadge: { fontSize: '10px', fontWeight: '800', color: '#DC2626' },
+  detailTextBody: { fontSize: '11px', color: '#334155', margin: '2px 0 0 0', lineHeight: '1.3' },
+  detailPhotoThumb: { width: '100px', height: '75px', objectFit: 'cover', borderRadius: '6px', border: '2px solid #0F766E', marginTop: '4px', cursor: 'pointer' },
+  stageJudgeBox: { marginTop: '8px', backgroundColor: '#F8FAFC', border: '1px solid #CBD5E1', padding: '10px', borderRadius: '8px' },
+  stageJudgeTitle: { fontSize: '9px', fontWeight: '800', color: '#475569', display: 'block', marginBottom: '6px' },
+  stageBtnRow: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' },
+  btnStageApprove: { padding: '8px', backgroundColor: '#166534', color: '#FFFFFF', border: 'none', borderRadius: '6px', fontSize: '10px', fontWeight: '800', cursor: 'pointer' },
+  btnStageInvestigate: { padding: '8px', backgroundColor: '#D97706', color: '#FFFFFF', border: 'none', borderRadius: '6px', fontSize: '10px', fontWeight: '800', cursor: 'pointer' },
+  btnStageReject: { padding: '8px', backgroundColor: '#DC2626', color: '#FFFFFF', border: 'none', borderRadius: '6px', fontSize: '10px', fontWeight: '800', cursor: 'pointer' },
+  btnStageDelete: { padding: '8px', backgroundColor: '#475569', color: '#FFFFFF', border: 'none', borderRadius: '6px', fontSize: '10px', fontWeight: '800', cursor: 'pointer' },
   fullModalImg: { width: '100%', height: 'auto', borderRadius: '8px', border: '1px solid #CBD5E1' }
 };

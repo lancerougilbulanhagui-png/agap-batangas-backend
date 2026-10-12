@@ -15,7 +15,7 @@ function calculateDistanceKm(lat1, lon1, lat2, lon2) {
   return R * c;
 }
 
-export default function DangerZoneMapScreen({ onBack }) {
+export default function DangerMapZoneScreen({ onBack }) {
   const [selectedFilter, setSelectedFilter] = useState('ALL');
   const [activePinId, setActivePinId] = useState(null);
   const [mapType, setMapType] = useState('m');
@@ -44,6 +44,7 @@ export default function DangerZoneMapScreen({ onBack }) {
     }
   };
 
+  // STRICT FILTER: Only fetch reports that have been APPROVED by Admin
   const fetchApprovedHazards = async () => {
     try {
       const { data, error } = await supabase
@@ -60,32 +61,34 @@ export default function DangerZoneMapScreen({ onBack }) {
 
   const parseCoords = (coordStr) => {
     if (!coordStr) return { lat: 13.7850, lng: 121.0740 };
-    const clean = coordStr.replace(/[^0-9.,-]/g, '');
-    const parts = clean.split(',').filter(Boolean);
-    if (parts.length >= 2) {
-      return { lat: parseFloat(parts[0]), lng: parseFloat(parts[1]) };
-    }
-    return { lat: 13.7850, lng: 121.0740 };
-  };
 
-  const getPhotoList = (photosData) => {
-    if (!photosData) return [];
-    if (Array.isArray(photosData)) return photosData;
-    if (typeof photosData === 'string') {
-      try {
-        const parsed = JSON.parse(photosData);
-        return Array.isArray(parsed) ? parsed : [parsed];
-      } catch (e) {
-        return [photosData];
-      }
+    const parts = coordStr
+      .replace(/[^0-9.,-]/g, '')
+      .split(',')
+      .map((p) => p.trim())
+      .filter(Boolean);
+
+    if (parts.length >= 2) {
+      return {
+        lat: parseFloat(parts[0]),
+        lng: parseFloat(parts[1]),
+      };
     }
-    return [];
+
+    return { lat: 13.7850, lng: 121.0740 };
   };
 
   const hazardsWithDistance = approvedHazards.map((h) => {
     const coords = parseCoords(h.coordinates);
-    const distKm = calculateDistanceKm(userGps.lat, userGps.lng, coords.lat, coords.lng);
-    const formatted = distKm < 1 ? `${Math.round(distKm * 1000)}m away` : `${distKm.toFixed(1)}km away`;
+    const distKm = calculateDistanceKm(
+      userGps.lat,
+      userGps.lng,
+      coords.lat,
+      coords.lng
+    );
+    const formatted =
+      distKm < 1 ? `${Math.round(distKm * 1000)}m away` : `${distKm.toFixed(1)}km away`;
+
     return { ...h, parsedCoords: coords, distanceKm: distKm, distanceFormatted: formatted };
   });
 
@@ -96,7 +99,9 @@ export default function DangerZoneMapScreen({ onBack }) {
         (loc.category || '').toUpperCase().includes(selectedFilter)
       );
 
-  const activeLocation = activePinId ? hazardsWithDistance.find((loc) => loc.id === activePinId) : null;
+  const activeLocation = activePinId
+    ? hazardsWithDistance.find((loc) => loc.id === activePinId || loc.report_id === activePinId)
+    : null;
 
   const mapCenterCoords = activeLocation
     ? `${activeLocation.parsedCoords.lat},${activeLocation.parsedCoords.lng}`
@@ -105,25 +110,18 @@ export default function DangerZoneMapScreen({ onBack }) {
   const currentZoom = activeLocation ? 16 : 14;
   const googleMapEmbedUrl = `https://maps.google.com/maps?q=${encodeURIComponent(mapCenterCoords)}&t=${mapType}&z=${currentZoom}&ie=UTF8&iwloc=&output=embed`;
 
-  const openGoogleMapsRedirect = (coordStr, locationName) => {
-    const clean = (coordStr || locationName || 'Batangas City').replace(/[^0-9.,NnSsEeWw\s]/g, '').trim();
-    window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(clean)}`, '_blank');
-  };
-
   return (
     <div style={styles.container}>
-      {/* Navigation Header */}
       <div style={styles.navHeader}>
         <button style={styles.backBtn} onClick={onBack}>
           &lt; Back
         </button>
         <div>
           <h2 style={styles.headerTitle}>Batangas Danger Zone Map</h2>
-          <div style={styles.headerSub}>Live Database Approved Risk Pins</div>
+          <div style={styles.headerSub}>Live Approved Citizen Hazard Pins</div>
         </div>
       </div>
 
-      {/* Embedded Google Map Frame */}
       <div style={styles.mapCard}>
         <div style={styles.mapTopControls}>
           <div style={styles.scopeBadge}>
@@ -158,20 +156,8 @@ export default function DangerZoneMapScreen({ onBack }) {
             style={styles.mapIframe}
           ></iframe>
         </div>
-
-        <div style={styles.mapViewControls}>
-          <button style={styles.resetBtn} onClick={() => setActivePinId(null)}>
-            Center View
-          </button>
-          <div style={styles.pinStatusPill}>
-            <span style={styles.pinStatusText}>
-              {activeLocation ? activeLocation.location : 'Batangas City Sector'}
-            </span>
-          </div>
-        </div>
       </div>
 
-      {/* Category Filter Chips */}
       <div style={styles.filterChipRow}>
         {['ALL', 'CRITICAL', 'SEVERE', 'MODERATE', 'LOW'].map((cat) => (
           <button
@@ -184,51 +170,26 @@ export default function DangerZoneMapScreen({ onBack }) {
         ))}
       </div>
 
-      {/* Pins List From Database */}
       <div style={styles.pinsListContainer}>
         {filteredLocations.length === 0 ? (
           <div style={styles.emptyMapCard}>
-            No approved hazard or disaster reports in database. Map is clear.
+            No approved hazard pins in this category. Map is clear.
           </div>
         ) : (
-          filteredLocations.map((item) => (
+          filteredLocations.map((item, index) => (
             <div
-              key={item.id}
-              style={activePinId === item.id ? styles.hazardCardActive : styles.hazardCard}
-              onClick={() => setActivePinId(item.id)}
+              key={item.id || item.report_id || item.ticket_no || index}
+              style={activePinId === (item.id || item.report_id || item.ticket_no) ? styles.hazardCardActive : styles.hazardCard}
+              onClick={() => setActivePinId(item.id || item.report_id || item.ticket_no)}
             >
               <div style={styles.cardHeaderRow}>
-                <span style={styles.ticketTag}>{item.id}</span>
+                <span style={styles.ticketTag}>{item.id || item.ticket_no || 'APPROVED'}</span>
                 <span style={styles.severityTag}>{item.severity}</span>
               </div>
 
               <h4 style={styles.hazardTitle}>{item.hazard_type || item.title || item.category}</h4>
               <div style={styles.hazardMeta}>Location: {item.location} ({item.distanceFormatted})</div>
               <div style={styles.hazardMeta}>Submitted: {item.created_at ? new Date(item.created_at).toLocaleString() : 'Recently'}</div>
-
-              {activePinId === item.id && (
-                <div style={styles.expandedDetails}>
-                  <p style={styles.descText}>{item.description || item.details || 'No additional remarks.'}</p>
-
-                  {getPhotoList(item.photos).length > 0 && (
-                    <div style={styles.photoGallery}>
-                      {getPhotoList(item.photos).map((pSrc, pIdx) => (
-                        <img key={pIdx} src={pSrc} alt="Evidence" style={styles.photoThumb} />
-                      ))}
-                    </div>
-                  )}
-
-                  <button
-                    style={styles.redirectBtn}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      openGoogleMapsRedirect(item.coordinates, item.location);
-                    }}
-                  >
-                    Open Pin in Google Maps App
-                  </button>
-                </div>
-              )}
             </div>
           ))
         )}
@@ -252,9 +213,6 @@ const styles = {
   toggleInactive: { padding: '4px 8px', backgroundColor: '#F1F5F9', color: '#64748B', border: 'none', borderRadius: '4px', fontSize: '10px', fontWeight: '600', cursor: 'pointer' },
   mapFrame: { borderRadius: '8px', overflow: 'hidden', border: '1px solid #CBD5E1' },
   mapIframe: { width: '100%', display: 'block' },
-  mapViewControls: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '8px' },
-  resetBtn: { padding: '5px 10px', backgroundColor: '#F1F5F9', border: '1px solid #CBD5E1', borderRadius: '4px', fontSize: '10px', fontWeight: '700', color: '#475569', cursor: 'pointer' },
-  pinStatusPill: { fontSize: '10px', color: '#0F766E', fontWeight: '700' },
   filterChipRow: { display: 'flex', gap: '6px', overflowX: 'auto', marginBottom: '12px', paddingBottom: '4px' },
   chipActive: { padding: '6px 12px', backgroundColor: '#0F766E', color: '#FFFFFF', border: 'none', borderRadius: '16px', fontSize: '10px', fontWeight: '800', cursor: 'pointer' },
   chipInactive: { padding: '6px 12px', backgroundColor: '#E2E8F0', color: '#475569', border: 'none', borderRadius: '16px', fontSize: '10px', fontWeight: '600', cursor: 'pointer' },
@@ -266,10 +224,5 @@ const styles = {
   ticketTag: { fontSize: '10px', fontWeight: '800', color: '#0F766E', backgroundColor: '#CCFBF1', padding: '2px 6px', borderRadius: '4px' },
   severityTag: { fontSize: '10px', fontWeight: '800', color: '#DC2626', backgroundColor: '#FEE2E2', padding: '2px 6px', borderRadius: '4px' },
   hazardTitle: { fontSize: '13px', fontWeight: '800', color: '#0F172A', margin: '2px 0' },
-  hazardMeta: { fontSize: '10px', color: '#64748B' },
-  expandedDetails: { marginTop: '8px', paddingTop: '8px', borderTop: '1px solid #E2E8F0' },
-  descText: { fontSize: '11px', color: '#334155', margin: '0 0 6px 0', lineHeight: '1.4' },
-  photoGallery: { display: 'flex', gap: '6px', marginBottom: '8px', overflowX: 'auto' },
-  photoThumb: { width: '80px', height: '60px', objectFit: 'cover', borderRadius: '6px', border: '1px solid #CBD5E1' },
-  redirectBtn: { width: '100%', padding: '8px', backgroundColor: '#0F766E', color: '#FFFFFF', border: 'none', borderRadius: '6px', fontSize: '10px', fontWeight: '800', cursor: 'pointer' }
+  hazardMeta: { fontSize: '10px', color: '#64748B' }
 };
