@@ -122,10 +122,6 @@ export default function AdminScreen({ onBack }) {
     ['REJECTED', 'DELETED'].includes((r.status || '').toUpperCase())
   );
 
-  const resolvedReports = reports.filter((r) => 
-    (r.status || '').toUpperCase() === 'RESOLVED'
-  );
-
   // User Categorization & Sorting
   // Verified Citizens: Sorted Alphabetically by username/full_name
   const verifiedCitizens = profiles
