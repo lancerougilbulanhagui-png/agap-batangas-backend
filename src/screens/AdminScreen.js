@@ -55,21 +55,27 @@ export default function AdminScreen({ onBack }) {
     return [];
   };
 
+  const openGpsInGoogleMaps = (coordString) => {
+    if (!coordString) return;
+
+    const cleanCoords = coordString
+      .replace(/[^0-9.,NnSsEeWw\s]/g, '')
+      .trim() || 'Batangas City';
+
+    const googleMapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(cleanCoords)}`;
+    window.open(googleMapsUrl, '_blank', 'noopener,noreferrer');
+  };
+
   const openInspector = (report) => {
     setSelectedReport(report);
     setNoticeText(
-      `[AGAP DISPATCH NOTICE]: Response Unit (${assignedUnit}) assigned to report "${report.hazard_type || report.title || 'Hazard Report'}" at ${report.location}.`
+      `[AGAP DISPATCH NOTICE]: Response Unit (${assignedUnit}) assigned to report "${report.report_type || report.title || report.category || 'Hazard Report'}" at ${report.location}.`
     );
   };
 
-  const openGpsInMaps = (coordString) => {
-    if (!coordString) return;
-    const cleanCoords = coordString.replace(/[^0-9.,NnSsEeWw\s]/g, '').trim();
-    const googleMapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(cleanCoords)}`;
-    window.open(googleMapsUrl, '_blank');
-  };
-
   const handleUpdateReportStatus = async (statusType) => {
+    if (!selectedReport) return;
+
     setIsProcessingAction(true);
     try {
       const { error } = await supabase
@@ -79,7 +85,7 @@ export default function AdminScreen({ onBack }) {
 
       if (error) throw error;
 
-      alert(`[SUCCESS] Ticket ${selectedReport.id} set to ${statusType}.`);
+      alert(`[SUCCESS] Ticket ${selectedReport.id} marked as ${statusType}.`);
       setReports((prev) =>
         prev.map((r) => (r.id === selectedReport.id ? { ...r, status: statusType } : r))
       );
@@ -140,7 +146,7 @@ export default function AdminScreen({ onBack }) {
 
       if (error) throw error;
 
-      alert(`[UPDATE] Residency status set to ${approveStatus}.`);
+      alert(`[UPDATE] Residency application set to ${approveStatus}.`);
       setProfiles((prev) =>
         prev.map((p) =>
           p.id === profileId
@@ -150,57 +156,89 @@ export default function AdminScreen({ onBack }) {
       );
       setSelectedVerification(null);
     } catch (err) {
-      alert(`[ERROR] Verification failed: ${err.message}`);
+      alert(`[ERROR] Verification update failed: ${err.message}`);
     }
   };
 
-  // Analytics calculation based strictly on live database entries
-  const getFilteredReports = () => {
+  // Database-Connected Analytics Calculations
+  const calculateDatabaseChartData = () => {
     const now = new Date();
-    return reports.filter((r) => {
-      const reportDate = new Date(r.created_at || now);
-      const diffHours = (now - reportDate) / (1000 * 60 * 60);
 
-      if (timeFilter === 'DAY') return diffHours <= 24;
-      if (timeFilter === 'WEEK') return diffHours <= 168;
-      if (timeFilter === 'MONTH') return diffHours <= 720;
-      if (timeFilter === 'YEAR') return diffHours <= 8760;
-      return true;
+    if (timeFilter === 'DAY') {
+      const intervals = ['00:00', '04:00', '08:00', '12:00', '16:00', '20:00'];
+      const counts = new Array(6).fill(0);
+      reports.forEach((r) => {
+        const rDate = new Date(r.created_at || now);
+        if ((now - rDate) <= 86400000) {
+          const hour = rDate.getHours();
+          const bucketIndex = Math.min(Math.floor(hour / 4), 5);
+          counts[bucketIndex] += 1;
+        }
+      });
+      return { labels: intervals, values: counts };
+    }
+
+    if (timeFilter === 'WEEK') {
+      const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+      const counts = new Array(7).fill(0);
+      reports.forEach((r) => {
+        const rDate = new Date(r.created_at || now);
+        if ((now - rDate) <= 604800000) {
+          counts[rDate.getDay()] += 1;
+        }
+      });
+      return { labels: days, values: counts };
+    }
+
+    if (timeFilter === 'MONTH') {
+      const weeks = ['Week 1', 'Week 2', 'Week 3', 'Week 4'];
+      const counts = new Array(4).fill(0);
+      reports.forEach((r) => {
+        const rDate = new Date(r.created_at || now);
+        if ((now - rDate) <= 2592000000) {
+          const dayOfMonth = rDate.getDate();
+          const bucket = Math.min(Math.floor((dayOfMonth - 1) / 7), 3);
+          counts[bucket] += 1;
+        }
+      });
+      return { labels: weeks, values: counts };
+    }
+
+    // YEAR
+    const quarters = ['Q1', 'Q2', 'Q3', 'Q4'];
+    const counts = new Array(4).fill(0);
+    reports.forEach((r) => {
+      const rDate = new Date(r.created_at || now);
+      if (rDate.getFullYear() === now.getFullYear()) {
+        const q = Math.floor(rDate.getMonth() / 3);
+        counts[q] += 1;
+      }
     });
+    return { labels: quarters, values: counts };
   };
 
-  const filteredReportsList = getFilteredReports();
+  const dbChart = calculateDatabaseChartData();
+  const maxDbChartVal = Math.max(...dbChart.values, 1);
 
   const generatePeriodSummary = () => {
-    const total = filteredReportsList.length;
-    if (total === 0) {
-      setSummaryText(`No hazard reports submitted in the database for the selected period (${timeFilter}).`);
+    const totalInPeriod = dbChart.values.reduce((a, b) => a + b, 0);
+    if (totalInPeriod === 0) {
+      setSummaryText(`NO REPORTS RECORDED IN DATABASE for the selected timeframe (${timeFilter}). System is operating at zero logged hazard incidents.`);
       return;
     }
 
-    const approvedCount = filteredReportsList.filter((r) => r.status === 'APPROVED').length;
-    const pendingCount = filteredReportsList.filter((r) => r.status === 'PENDING').length;
-    const criticalCount = filteredReportsList.filter((r) => r.severity === 'CRITICAL' || r.severity === 'SEVERE').length;
-
-    const categories = {};
-    filteredReportsList.forEach((r) => {
-      const cat = r.hazard_type || r.category || 'General Hazard';
-      categories[cat] = (categories[cat] || 0) + 1;
-    });
-
-    const topCategory = Object.keys(categories).reduce((a, b) => (categories[a] > categories[b] ? a : b), 'General Hazard');
+    const approvedCount = reports.filter((r) => r.status === 'APPROVED').length;
+    const pendingCount = reports.filter((r) => r.status === 'PENDING').length;
 
     setSummaryText(
-      `SUMMARY (${timeFilter} VIEW): ${total} total submission(s) recorded. ` +
-      `${approvedCount} approved/dispatched, ${pendingCount} pending review. ` +
-      `Primary hazard type: "${topCategory}" (${categories[topCategory]} report[s]). ` +
-      `High-severity incidents requiring priority dispatch: ${criticalCount}.`
+      `DATABASE SUMMARY (${timeFilter} FILTER): ${totalInPeriod} report(s) logged in database. ` +
+      `${approvedCount} approved & dispatched, ${pendingCount} pending review. ` +
+      `System status: Active monitoring connected to live Supabase backend.`
     );
   };
 
   return (
     <div style={styles.container}>
-      {/* Header Bar */}
       <div style={styles.navHeader}>
         <button style={styles.backBtn} onClick={onBack}>
           &lt; Back
@@ -214,27 +252,27 @@ export default function AdminScreen({ onBack }) {
         </div>
       </div>
 
-      {/* Main Content Sections */}
+      {/* 1. DATABASE FEED TAB */}
       {adminTab === 'database' && !selectedReport && (
         <div style={styles.viewSection}>
           <div style={styles.sectionHeaderRow}>
-            <span style={styles.sectionHeader}>Submitted Reports Database ({reports.length})</span>
+            <span style={styles.sectionHeader}>Submitted Reports ({reports.length})</span>
             <button style={styles.refreshBtn} onClick={fetchLiveData} disabled={isLoading}>
               {isLoading ? 'Syncing...' : 'Sync Feed'}
             </button>
           </div>
 
           {reports.length === 0 ? (
-            <div style={styles.emptyCard}>No submissions found in database.</div>
+            <div style={styles.emptyCard}>No hazard reports submitted in database.</div>
           ) : (
             <div style={styles.reportList}>
               {reports.map((item) => (
-                <div key={item.id} style={styles.fileCard}>
+                <div key={item.id || item.report_id || item._id} style={styles.fileCard}>
                   <div style={styles.fileCardHeader}>
-                    <span style={styles.fileIdTag}>{item.id}</span>
+                    <span style={styles.fileIdTag}>{item.id || item.report_id || 'N/A'}</span>
                     <span style={styles.statusBadge}>{item.status || 'PENDING'}</span>
                   </div>
-                  <h3 style={styles.fileTitle}>{item.hazard_type || item.title || item.category}</h3>
+                  <h3 style={styles.fileTitle}>{item.report_type || item.title || item.category}</h3>
                   <div style={styles.fileMeta}>Location: {item.location}</div>
                   <div style={styles.fileMeta}>Submitter: {item.sender_name || 'Citizen'} ({item.user_role || 'CITIZEN'})</div>
                   <div style={styles.fileMeta}>Severity: <strong style={{ color: '#DC2626' }}>{item.severity}</strong></div>
@@ -248,9 +286,10 @@ export default function AdminScreen({ onBack }) {
         </div>
       )}
 
+      {/* 2. ANALYTICS TAB WITH DATABASE CONNECTED GRAPH */}
       {adminTab === 'analytics' && (
         <div style={styles.viewSection}>
-          <div style={styles.sectionHeader}>DATABASE SUBMISSION ANALYTICS</div>
+          <div style={styles.sectionHeader}>DATABASE ANALYTICS & GRAPH</div>
 
           <div style={styles.filterBar}>
             {['DAY', 'WEEK', 'MONTH', 'YEAR'].map((filter) => (
@@ -266,27 +305,23 @@ export default function AdminScreen({ onBack }) {
 
           <div style={styles.chartCard}>
             <div style={styles.chartHeader}>
-              <span style={styles.chartTitle}>Incidents Logged ({timeFilter} VIEW)</span>
-              <span style={styles.chartSub}>Total Records in Period: {filteredReportsList.length}</span>
+              <span style={styles.chartTitle}>Submission Volume Graph ({timeFilter} VIEW)</span>
+              <span style={styles.chartSub}>Live Records in Supabase Database</span>
             </div>
 
-            <div style={styles.metricsGrid}>
-              <div style={styles.metricCard}>
-                <span style={styles.metricNum}>{filteredReportsList.length}</span>
-                <span style={styles.metricLabel}>Total Submissions</span>
-              </div>
-              <div style={styles.metricCard}>
-                <span style={{ ...styles.metricNum, color: '#15803D' }}>
-                  {filteredReportsList.filter((r) => r.status === 'APPROVED').length}
-                </span>
-                <span style={styles.metricLabel}>Dispatched</span>
-              </div>
-              <div style={styles.metricCard}>
-                <span style={{ ...styles.metricNum, color: '#DC2626' }}>
-                  {filteredReportsList.filter((r) => r.severity === 'CRITICAL' || r.severity === 'SEVERE').length}
-                </span>
-                <span style={styles.metricLabel}>Severe Hazards</span>
-              </div>
+            <div style={styles.barGraphContainer}>
+              {dbChart.values.map((val, idx) => {
+                const barHeight = Math.round((val / maxDbChartVal) * 100);
+                return (
+                  <div key={idx} style={styles.barCol}>
+                    <span style={styles.barValText}>{val}</span>
+                    <div style={styles.barTrack}>
+                      <div style={{ ...styles.barFill, height: `${val === 0 ? 4 : barHeight}%` }}></div>
+                    </div>
+                    <span style={styles.barLabelText}>{dbChart.labels[idx]}</span>
+                  </div>
+                );
+              })}
             </div>
 
             <button style={styles.summaryActionBtn} onClick={generatePeriodSummary}>
@@ -298,24 +333,25 @@ export default function AdminScreen({ onBack }) {
         </div>
       )}
 
+      {/* 3. USER MODERATION TAB */}
       {adminTab === 'users' && !selectedUser && (
         <div style={styles.viewSection}>
-          <div style={styles.sectionHeader}>USER MODERATION & SUBMITTERS</div>
+          <div style={styles.sectionHeader}>USER MODERATION & DEVICES</div>
 
           {profiles.length === 0 ? (
-            <div style={styles.emptyCard}>No registered user accounts found.</div>
+            <div style={styles.emptyCard}>No registered profiles in database.</div>
           ) : (
             <div style={styles.reportList}>
               {profiles.map((prof) => (
-                <div key={prof.id} style={styles.fileCard}>
+                <div key={prof.device_id || prof.id || prof.full_name || 'profile'} style={styles.fileCard}>
                   <div style={styles.fileCardHeader}>
-                    <span style={{ fontSize: '12px', fontWeight: '800', color: '#0F172A' }}>{prof.full_name || 'Citizen User'}</span>
-                    <span style={styles.statusBadge}>{prof.verification_status || 'UNVERIFIED'}</span>
+                    <span style={{ fontSize: '12px', fontWeight: '800', color: '#0F172A' }}>{prof.full_name || 'User Profile'}</span>
+                    <span style={styles.statusBadge}>{prof.user_role || 'GUEST'}</span>
                   </div>
-                  <div style={styles.fileMeta}>Barangay: {prof.barangay || 'N/A'}</div>
                   <div style={styles.fileMeta}>Device ID: {prof.device_id}</div>
+                  <div style={styles.fileMeta}>Status: {prof.verification_status || 'UNVERIFIED'}</div>
                   <button style={styles.processFileBtn} onClick={() => setSelectedUser(prof)}>
-                    Inspect User & Submissions &rarr;
+                    Inspect User Reports & Purge &rarr;
                   </button>
                 </div>
               ))}
@@ -330,30 +366,30 @@ export default function AdminScreen({ onBack }) {
             &lt; Back to Users
           </button>
           <div style={styles.formSectionCard}>
-            <label style={styles.formSectionLabel}>USER PROFILE DATA</label>
+            <label style={styles.formSectionLabel}>USER INFORMATION</label>
             <div style={styles.formValueTextBold}>{selectedUser.full_name}</div>
-            <div style={styles.formSubText}>Device ID: {selectedUser.device_id} | Phone: {selectedUser.phone || 'N/A'}</div>
-            <div style={styles.formSubText}>Barangay: {selectedUser.barangay} | Status: {selectedUser.verification_status}</div>
+            <div style={styles.formSubText}>Device ID: {selectedUser.device_id}</div>
+            <div style={styles.formSubText}>Phone: {selectedUser.phone || 'N/A'} | Role: {selectedUser.user_role}</div>
           </div>
 
           <div style={{ ...styles.sectionHeader, marginTop: '12px' }}>
-            SUBMISSIONS FROM THIS USER ({reports.filter((r) => r.device_id === selectedUser.device_id).length})
+            SUBMISSIONS FROM THIS DEVICE ({reports.filter((r) => r.device_id === selectedUser.device_id).length})
           </div>
 
           {reports.filter((r) => r.device_id === selectedUser.device_id).length === 0 ? (
-            <div style={styles.emptyCard}>No reports submitted by this user device.</div>
+            <div style={styles.emptyCard}>No submissions logged from this device.</div>
           ) : (
             <div style={styles.reportList}>
               {reports
                 .filter((r) => r.device_id === selectedUser.device_id)
                 .map((r) => (
-                  <div key={r.id} style={styles.fileCard}>
+                  <div key={r.id || `${r.device_id}-${r.created_at}`} style={styles.fileCard}>
                     <div style={styles.fileCardHeader}>
-                      <span style={styles.fileIdTag}>{r.id}</span>
+                      <span style={styles.fileIdTag}>{r.id || 'N/A'}</span>
                       <span style={styles.statusBadge}>{r.status}</span>
                     </div>
-                    <div style={styles.fileTitle}>{r.hazard_type || r.category}</div>
-                    <div style={styles.fileMeta}>{r.location}</div>
+                    <div style={styles.fileTitle}>{r.report_type || r.title || r.category}</div>
+                    <div style={styles.fileMeta}>Location: {r.location}</div>
                   </div>
                 ))}
             </div>
@@ -363,29 +399,30 @@ export default function AdminScreen({ onBack }) {
             style={{ ...styles.btnDanger, marginTop: '12px', width: '100%' }}
             onClick={() => handlePurgeAllUserReports(selectedUser.device_id)}
           >
-            Purge All Reports From This User
+            Purge All Reports From This Device
           </button>
         </div>
       )}
 
+      {/* 4. CITIZEN VERIFICATION TAB */}
       {adminTab === 'verifications' && !selectedVerification && (
         <div style={styles.viewSection}>
-          <div style={styles.sectionHeader}>PENDING RESIDENCY APPLICATIONS</div>
+          <div style={styles.sectionHeader}>PENDING CITIZEN APPLICATIONS</div>
 
           {profiles.filter((p) => p.verification_status === 'PENDING').length === 0 ? (
-            <div style={styles.emptyCard}>No pending verification applications.</div>
+            <div style={styles.emptyCard}>No pending citizen applications.</div>
           ) : (
             <div style={styles.reportList}>
               {profiles
                 .filter((p) => p.verification_status === 'PENDING')
                 .map((prof) => (
-                  <div key={prof.id} style={styles.fileCard}>
+                  <div key={prof.device_id || prof.id || prof.full_name || 'verification'} style={styles.fileCard}>
                     <div style={styles.fileCardHeader}>
                       <span style={{ fontSize: '13px', fontWeight: '800', color: '#0F172A' }}>{prof.full_name}</span>
                       <span style={styles.statusBadgeYellow}>PENDING</span>
                     </div>
                     <button style={styles.processFileBtn} onClick={() => setSelectedVerification(prof)}>
-                      Review Application &rarr;
+                      Review Application Data &rarr;
                     </button>
                   </div>
                 ))}
@@ -397,18 +434,18 @@ export default function AdminScreen({ onBack }) {
       {adminTab === 'verifications' && selectedVerification && (
         <div style={styles.viewSection}>
           <button style={styles.closeSheetBtn} onClick={() => setSelectedVerification(null)}>
-            &lt; Back to List
+            &lt; Back to Applications
           </button>
           <div style={styles.formSectionCard}>
-            <label style={styles.formSectionLabel}>CITIZEN APPLICATION DETAILS</label>
+            <label style={styles.formSectionLabel}>APPLICANT SUBMITTED METADATA</label>
             <div style={styles.formValueTextBold}>{selectedVerification.full_name}</div>
             <div style={styles.formSubText}>Barangay: {selectedVerification.barangay}</div>
             <div style={styles.formSubText}>Phone: {selectedVerification.phone || 'N/A'}</div>
-            <div style={styles.formSubText}>Device Fingerprint: {selectedVerification.device_id}</div>
+            <div style={styles.formSubText}>Device ID: {selectedVerification.device_id}</div>
 
             {selectedVerification.proof_photo && (
               <div style={styles.proofPreviewBox}>
-                <span style={{ fontSize: '10px', fontWeight: '800', color: '#475569' }}>SUBMITTED ID PROOF:</span>
+                <span style={{ fontSize: '10px', fontWeight: '800', color: '#475569' }}>PROOFS ATTACHED:</span>
                 <img src={selectedVerification.proof_photo} alt="ID Proof" style={styles.proofImg} />
               </div>
             )}
@@ -416,13 +453,13 @@ export default function AdminScreen({ onBack }) {
             <div style={{ ...styles.actionButtonGroup, marginTop: '12px' }}>
               <button
                 style={styles.btnApprove}
-                onClick={() => handleVerifyCitizen(selectedVerification.id, 'VERIFIED')}
+                onClick={() => handleVerifyCitizen(selectedVerification.device_id, 'VERIFIED')}
               >
                 Approve Verified Citizen Status
               </button>
               <button
                 style={styles.btnReject}
-                onClick={() => handleVerifyCitizen(selectedVerification.id, 'REJECTED')}
+                onClick={() => handleVerifyCitizen(selectedVerification.device_id, 'REJECTED')}
               >
                 Decline Application
               </button>
@@ -431,7 +468,7 @@ export default function AdminScreen({ onBack }) {
         </div>
       )}
 
-      {/* Report Inspector Modal */}
+      {/* INSPECTOR MODAL */}
       {selectedReport && (
         <div style={styles.formSheetContainer}>
           <div style={styles.formSheetHeaderCard}>
@@ -454,7 +491,7 @@ export default function AdminScreen({ onBack }) {
 
           <div style={styles.formSectionCard}>
             <label style={styles.formSectionLabel}>2. HAZARD TYPE & SEVERITY</label>
-            <div style={styles.formValueTextBold}>{selectedReport.hazard_type || selectedReport.category}</div>
+            <div style={styles.formValueTextBold}>{selectedReport.report_type || selectedReport.category}</div>
             <div style={{ ...styles.formValueTextBold, color: '#DC2626', marginTop: '2px' }}>Severity: {selectedReport.severity}</div>
           </div>
 
@@ -463,9 +500,9 @@ export default function AdminScreen({ onBack }) {
             <div style={styles.formValueText}>Location: {selectedReport.location}</div>
             <button
               style={styles.gpsRedirectBtn}
-              onClick={() => openGpsInMaps(selectedReport.coordinates || selectedReport.location)}
+              onClick={() => openGpsInGoogleMaps(selectedReport.coordinates || selectedReport.location)}
             >
-              Redirect to GPS on Google Maps ({selectedReport.coordinates || 'Open Map'})
+              Open Coordinates in Google Maps ({selectedReport.coordinates || 'Redirect'})
             </button>
           </div>
 
@@ -476,9 +513,9 @@ export default function AdminScreen({ onBack }) {
 
           <div style={styles.formSectionCard}>
             <label style={styles.formSectionLabel}>5. ATTACHED PHOTO EVIDENCE</label>
-            {getPhotoList(selectedReport.photos).length > 0 ? (
+            {getPhotoList(selectedReport.photos || selectedReport.photo_url || selectedReport.image_url || selectedReport.evidence || []).length > 0 ? (
               <div style={styles.imageGrid}>
-                {getPhotoList(selectedReport.photos).map((photoSrc, idx) => (
+                {getPhotoList(selectedReport.photos || selectedReport.photo_url || selectedReport.image_url || selectedReport.evidence || []).map((photoSrc, idx) => (
                   <div key={idx} style={styles.imageCard}>
                     {typeof photoSrc === 'string' && photoSrc.startsWith('data:image') ? (
                       <img src={photoSrc} alt={`Evidence ${idx + 1}`} style={styles.evidenceImage} />
@@ -494,17 +531,17 @@ export default function AdminScreen({ onBack }) {
           </div>
 
           <div style={styles.formActionCard}>
-            <label style={styles.formSectionLabel}>6. DISPATCH WORKFLOW</label>
+            <label style={styles.formSectionLabel}>6. DISPATCH ACTIONS</label>
+
             <div style={styles.inputGroup}>
               <label style={styles.inputLabelText}>ASSIGN RESPONDER UNIT:</label>
               <select
                 style={styles.selectInput}
                 value={assignedUnit}
                 onChange={(e) => {
-                  const nextUnit = e.target.value;
-                  setAssignedUnit(nextUnit);
+                  setAssignedUnit(e.target.value);
                   setNoticeText(
-                    `[AGAP DISPATCH NOTICE]: Response Unit (${nextUnit}) assigned to report "${selectedReport.hazard_type || selectedReport.title || 'Hazard Report'}" at ${selectedReport.location}.`
+                    `[AGAP DISPATCH NOTICE]: Response Unit (${e.target.value}) assigned to report "${selectedReport.report_type || selectedReport.title}" at ${selectedReport.location}.`
                   );
                 }}
               >
@@ -552,29 +589,29 @@ export default function AdminScreen({ onBack }) {
         </div>
       )}
 
-      {/* Footer Navigation Bar (Without Icons) */}
+      {/* BOTTOM FOOTER BAR (WITHOUT ICONS) */}
       <div style={styles.footerNav}>
         <button
           style={adminTab === 'database' ? styles.footerBtnActive : styles.footerBtnInactive}
-          onClick={() => { setAdminTab('database'); setSelectedReport(null); }}
+          onClick={() => { setAdminTab('database'); setSelectedReport(null); setSelectedUser(null); }}
         >
           Database
         </button>
         <button
           style={adminTab === 'analytics' ? styles.footerBtnActive : styles.footerBtnInactive}
-          onClick={() => { setAdminTab('analytics'); setSelectedReport(null); }}
+          onClick={() => { setAdminTab('analytics'); setSelectedReport(null); setSelectedUser(null); }}
         >
           Analytics
         </button>
         <button
           style={adminTab === 'users' ? styles.footerBtnActive : styles.footerBtnInactive}
-          onClick={() => { setAdminTab('users'); setSelectedReport(null); }}
+          onClick={() => { setAdminTab('users'); setSelectedReport(null); setSelectedUser(null); }}
         >
-          Moderation
+          User Moderation
         </button>
         <button
           style={adminTab === 'verifications' ? styles.footerBtnActive : styles.footerBtnInactive}
-          onClick={() => { setAdminTab('verifications'); setSelectedReport(null); }}
+          onClick={() => { setAdminTab('verifications'); setSelectedReport(null); setSelectedUser(null); }}
         >
           Verification
         </button>
@@ -611,10 +648,12 @@ const styles = {
   chartHeader: { display: 'flex', flexDirection: 'column', gap: '2px', marginBottom: '14px' },
   chartTitle: { fontSize: '12px', fontWeight: '800', color: '#0F172A' },
   chartSub: { fontSize: '10px', color: '#64748B' },
-  metricsGrid: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px', marginBottom: '12px' },
-  metricCard: { backgroundColor: '#F8FAFC', border: '1px solid #CBD5E1', borderRadius: '8px', padding: '10px', textAlign: 'center' },
-  metricNum: { fontSize: '16px', fontWeight: '800', color: '#0F172A', display: 'block' },
-  metricLabel: { fontSize: '9px', color: '#64748B', fontWeight: '700' },
+  barGraphContainer: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', height: '120px', padding: '10px 0', borderBottom: '1px solid #CBD5E1', marginBottom: '12px' },
+  barCol: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', flex: 1 },
+  barValText: { fontSize: '9px', fontWeight: '800', color: '#0F766E' },
+  barTrack: { width: '16px', height: '80px', backgroundColor: '#F1F5F9', borderRadius: '4px', display: 'flex', alignItems: 'flex-end', overflow: 'hidden' },
+  barFill: { width: '100%', backgroundColor: '#0F766E', borderRadius: '4px' },
+  barLabelText: { fontSize: '9px', color: '#64748B', fontWeight: '700' },
   summaryActionBtn: { width: '100%', padding: '9px', backgroundColor: '#0F766E', color: '#FFFFFF', border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: '800', cursor: 'pointer' },
   summaryOutputCard: { marginTop: '10px', backgroundColor: '#F0FDF4', border: '1px solid #A7F3D0', padding: '10px', borderRadius: '6px', fontSize: '11px', color: '#065F46', lineHeight: '1.4' },
   proofPreviewBox: { marginTop: '8px', padding: '8px', backgroundColor: '#F8FAFC', border: '1px solid #CBD5E1', borderRadius: '6px' },

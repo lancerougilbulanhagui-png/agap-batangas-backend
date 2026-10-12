@@ -1,17 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
 
-export default function ProfileScreen({ onBack, userRole = 'CITIZEN' }) {
+export default function ProfileScreen({ onBack }) {
   const [deviceId, setDeviceId] = useState('');
   const [profile, setProfile] = useState(null);
-  const [isLoginMode, setIsLoginMode] = useState(true);
+  const [username, setUsername] = useState('');
   const [fullName, setFullName] = useState('');
   const [phone, setPhone] = useState('');
   const [barangay, setBarangay] = useState('Brgy. Alangilan');
   const [idProofPhoto, setIdProofPhoto] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Initialize or fetch device ID
   useEffect(() => {
     let localDeviceId = localStorage.getItem('agap_device_id');
     if (!localDeviceId) {
@@ -32,7 +31,7 @@ export default function ProfileScreen({ onBack, userRole = 'CITIZEN' }) {
 
       if (data) setProfile(data);
     } catch (err) {
-      console.log('No profile found for device yet.');
+      console.log('No profile recorded for device yet.');
     }
   };
 
@@ -56,10 +55,10 @@ export default function ProfileScreen({ onBack, userRole = 'CITIZEN' }) {
       const payload = {
         id: profileId,
         device_id: deviceId,
-        full_name: fullName,
+        full_name: `${username ? username + ' (' + fullName + ')' : fullName}`,
         phone: phone,
         barangay: barangay,
-        user_role: 'GUEST', // Remains guest until admin verifies ID
+        user_role: 'GUEST',
         verification_status: 'PENDING',
         id_proof_photo: idProofPhoto
       };
@@ -67,10 +66,10 @@ export default function ProfileScreen({ onBack, userRole = 'CITIZEN' }) {
       const { error } = await supabase.from('profiles').insert([payload]);
       if (error) throw error;
 
-      alert('[SUCCESS] Residency application submitted! Admin will verify your ID.');
+      alert('[SUCCESS] Profile created & application sent to Admin!');
       setProfile(payload);
     } catch (err) {
-      alert(`[ERROR] Save failed: ${err.message}`);
+      alert(`[ERROR] Registration failed: ${err.message}`);
     } finally {
       setIsSubmitting(false);
     }
@@ -83,14 +82,17 @@ export default function ProfileScreen({ onBack, userRole = 'CITIZEN' }) {
           &lt; Back
         </button>
         <div>
-          <h2 style={styles.headerTitle}>User Profile & Identity</h2>
-          <div style={styles.headerSub}>Project AGAP Access Portal</div>
+          <h2 style={styles.headerTitle}>User Identity & Role Locking</h2>
+          <div style={styles.headerSub}>Project AGAP Device Fingerprint</div>
         </div>
       </div>
 
       <div style={styles.deviceBox}>
-        <span style={styles.deviceLabel}>DEVICE FINGERPRINT IDENTIFIER</span>
-        <div style={styles.deviceVal}>{deviceId || 'Generating...'}</div>
+        <span style={styles.deviceLabel}>ACTIVE DEVICE IDENTIFIER:</span>
+        <div style={styles.deviceVal}>{deviceId || 'Loading...'}</div>
+        <span style={styles.deviceSub}>
+          1 Physical Device = 1 Bound Identity (Guest or Verified Citizen)
+        </span>
       </div>
 
       {profile ? (
@@ -104,26 +106,32 @@ export default function ProfileScreen({ onBack, userRole = 'CITIZEN' }) {
           <h3 style={styles.userName}>{profile.full_name}</h3>
           <div style={styles.userMeta}>Barangay: {profile.barangay}</div>
           <div style={styles.userMeta}>Phone: {profile.phone}</div>
-          <div style={styles.userMeta}>Assigned Role: {profile.user_role}</div>
+          <div style={styles.userMeta}>Bound Role: {profile.user_role}</div>
         </div>
       ) : (
         <div style={styles.authCard}>
-          <div style={styles.authTabRow}>
-            <button
-              style={isLoginMode ? styles.authTabActive : styles.authTabInactive}
-              onClick={() => setIsLoginMode(true)}
-            >
-              Sign Up / Apply
-            </button>
-          </div>
+          <h3 style={styles.authTitle}>Sign Up / Citizen Verification</h3>
+          <p style={styles.authSub}>First-time users operate as Guest until residency verification is approved by CDRRMO.</p>
 
           <form onSubmit={handleRegisterOrLogin} style={styles.formStack}>
             <div>
-              <label style={styles.inputLabel}>FULL NAME</label>
+              <label style={styles.inputLabel}>CHOOSE USERNAME</label>
               <input
                 type="text"
                 style={styles.textInput}
-                placeholder="Juan De La Cruz"
+                placeholder="e.g. BatangasCitizen01"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                required
+              />
+            </div>
+
+            <div>
+              <label style={styles.inputLabel}>FULL LEGAL NAME</label>
+              <input
+                type="text"
+                style={styles.textInput}
+                placeholder="Enter complete name"
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
                 required
@@ -157,13 +165,13 @@ export default function ProfileScreen({ onBack, userRole = 'CITIZEN' }) {
             </div>
 
             <div>
-              <label style={styles.inputLabel}>ATTACH ID / PROOF OF RESIDENCY</label>
+              <label style={styles.inputLabel}>ATTACH VALID ID / PROOF OF RESIDENCY</label>
               <input type="file" accept="image/*" onChange={handlePhotoUpload} style={styles.fileInput} required />
               {idProofPhoto && <div style={styles.photoAttachedTag}>ID Photo Attached</div>}
             </div>
 
             <button type="submit" style={styles.submitBtn} disabled={isSubmitting}>
-              {isSubmitting ? 'Transmitting...' : 'Submit Citizen Verification Request'}
+              {isSubmitting ? 'Transmitting...' : 'Register & Request Citizen Verification'}
             </button>
           </form>
         </div>
@@ -181,6 +189,7 @@ const styles = {
   deviceBox: { backgroundColor: '#F1F5F9', border: '1px solid #CBD5E1', borderRadius: '8px', padding: '10px', marginBottom: '14px' },
   deviceLabel: { fontSize: '9px', fontWeight: '800', color: '#64748B', display: 'block' },
   deviceVal: { fontSize: '12px', fontWeight: '800', color: '#0F766E', marginTop: '2px' },
+  deviceSub: { fontSize: '10px', color: '#64748B', marginTop: '4px', display: 'block' },
   profileCard: { backgroundColor: '#FFFFFF', border: '1px solid #CBD5E1', borderRadius: '12px', padding: '16px' },
   statusRow: { marginBottom: '10px' },
   badgeGreen: { fontSize: '10px', fontWeight: '800', backgroundColor: '#DCFCE7', color: '#166534', padding: '4px 8px', borderRadius: '6px' },
@@ -188,8 +197,8 @@ const styles = {
   userName: { fontSize: '16px', fontWeight: '800', color: '#0F172A', margin: '0 0 6px 0' },
   userMeta: { fontSize: '12px', color: '#475569', marginBottom: '4px' },
   authCard: { backgroundColor: '#FFFFFF', border: '1px solid #CBD5E1', borderRadius: '12px', padding: '16px' },
-  authTabRow: { borderBottom: '1px solid #E2E8F0', paddingBottom: '8px', marginBottom: '12px' },
-  authTabActive: { backgroundColor: 'transparent', border: 'none', color: '#0F766E', fontSize: '13px', fontWeight: '800' },
+  authTitle: { fontSize: '15px', fontWeight: '800', color: '#0F172A', margin: '0 0 4px 0' },
+  authSub: { fontSize: '11px', color: '#64748B', marginBottom: '12px', lineHeight: '1.4' },
   formStack: { display: 'flex', flexDirection: 'column', gap: '10px' },
   inputLabel: { fontSize: '10px', fontWeight: '800', color: '#64748B', display: 'block', marginBottom: '4px' },
   textInput: { width: '100%', padding: '9px', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '12px', boxSizing: 'border-box' },
