@@ -34,7 +34,7 @@ export default function ProfileScreen({ onBack, onAdminLogin }) {
 
       if (data) {
         setProfile(data);
-        setUsername(data.username || '');
+        setUsername(data.username || data.full_name || '');
         setFullName(data.full_name || '');
         setPhone(data.phone || '');
         setBarangay(data.barangay || 'Brgy. Alangilan');
@@ -61,31 +61,41 @@ export default function ProfileScreen({ onBack, onAdminLogin }) {
     setIsSubmitting(true);
 
     try {
-      if (profile) {
-        // UPDATE existing profile record in Supabase
-        const updates = {
-          username: username,
-          full_name: fullName,
-          phone: phone,
-          barangay: barangay,
-          ...(idProofPhoto ? { id_proof_photo: idProofPhoto } : {})
-        };
+      // Build payload cleanly
+      const payload = {
+        username: username,
+        full_name: fullName,
+        phone: phone,
+        barangay: barangay,
+        ...(idProofPhoto ? { id_proof_photo: idProofPhoto } : {})
+      };
 
-        const { error } = await supabase
+      if (profile) {
+        // Try updating with username first
+        let { error } = await supabase
           .from('profiles')
-          .update(updates)
+          .update(payload)
           .eq('device_id', deviceId);
+
+        // Fallback if username column does not exist in schema yet
+        if (error && error.message.includes('username')) {
+          delete payload.username;
+          const fallback = await supabase
+            .from('profiles')
+            .update(payload)
+            .eq('device_id', deviceId);
+          error = fallback.error;
+        }
 
         if (error) throw error;
 
         alert('[SUCCESS] Profile details updated successfully!');
-        setProfile({ ...profile, ...updates });
+        setProfile({ ...profile, username, full_name: fullName, phone, barangay });
         setIsEditing(false);
       } else {
-        // CREATE new profile record in Supabase
         const profileId = 'USER-' + Math.floor(100000 + Math.random() * 900000);
 
-        const payload = {
+        let insertPayload = {
           id: profileId,
           device_id: deviceId,
           username: username,
@@ -97,11 +107,18 @@ export default function ProfileScreen({ onBack, onAdminLogin }) {
           id_proof_photo: idProofPhoto
         };
 
-        const { error } = await supabase.from('profiles').insert([payload]);
+        let { error } = await supabase.from('profiles').insert([insertPayload]);
+
+        if (error && error.message.includes('username')) {
+          delete insertPayload.username;
+          const fallback = await supabase.from('profiles').insert([insertPayload]);
+          error = fallback.error;
+        }
+
         if (error) throw error;
 
         alert('[SUCCESS] Details saved! You can now use all app functions while admin verifies your identity.');
-        setProfile(payload);
+        setProfile({ ...insertPayload, username });
         setIsEditing(false);
       }
     } catch (err) {
