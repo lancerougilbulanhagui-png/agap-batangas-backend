@@ -5,7 +5,7 @@ import { supabase } from './supabaseClient';
 import LandingScreen from './screens/LandingScreen';
 import DashboardScreen from './screens/DashboardScreen';
 import ReportSubmitScreen from './screens/ReportSubmitScreen';
-import HotlinesScreen from './screens/HotlinesScreen';
+import HotlinesScreen from './screens/HotlineScreen';
 import ReportTrackerScreen from './screens/ReportTrackerScreen';
 import DangerZoneMapScreen from './screens/DangerZoneMapScreen';
 import AdminScreen from './screens/AdminScreen';
