@@ -12,7 +12,7 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userRole =
   const [isGpsLoading, setIsGpsLoading] = useState(false);
 
   const [description, setDescription] = useState('');
-  const [photoAttached, setPhotoAttached] = useState('');
+  const [photoData, setPhotoData] = useState(null); // Stores image preview and base64
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const mapContainerRef = useRef(null);
@@ -76,9 +76,9 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userRole =
       });
 
       marker.on('dragend', () => {
-        const position = marker.getLatLng();
-        const lat = parseFloat(position.lat.toFixed(5));
-        const lng = parseFloat(position.lng.toFixed(5));
+        const pos = marker.getLatLng();
+        const lat = parseFloat(pos.lat.toFixed(5));
+        const lng = parseFloat(pos.lng.toFixed(5));
         setLatitude(lat);
         setLongitude(lng);
       });
@@ -102,9 +102,9 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userRole =
 
     setIsGpsLoading(true);
     navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const lat = parseFloat(position.coords.latitude.toFixed(5));
-        const lng = parseFloat(position.coords.longitude.toFixed(5));
+      (pos) => {
+        const lat = parseFloat(pos.coords.latitude.toFixed(5));
+        const lng = parseFloat(pos.coords.longitude.toFixed(5));
         setLatitude(lat);
         setLongitude(lng);
         setLocationName(`Near ${lat} N, ${lng} E`);
@@ -117,7 +117,7 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userRole =
       },
       () => {
         setIsGpsLoading(false);
-        alert('Could not fetch GPS location. Tap anywhere on the map to place pin.');
+        alert('Could not fetch GPS location. Tap anywhere on the map to drop pin.');
       },
       { enableHighAccuracy: true, timeout: 10000 }
     );
@@ -128,10 +128,17 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userRole =
     if (!file) return;
 
     const reader = new FileReader();
-    reader.readAsDataURL(file);
     reader.onload = () => {
-      setPhotoAttached(reader.result);
+      setPhotoData({
+        fileName: file.name,
+        base64: reader.result
+      });
     };
+    reader.readAsDataURL(file);
+  };
+
+  const handleRemovePhoto = () => {
+    setPhotoData(null);
   };
 
   const handleSubmit = async (e) => {
@@ -170,16 +177,12 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userRole =
         description: description,
         status: 'PENDING',
         device_id: localDeviceId,
-        proof_photos: photoAttached ? JSON.stringify([photoAttached]) : null
+        proof_photos: photoData ? photoData.base64 : null
       };
 
       const { error } = await supabase.from('reports').insert([payload]);
 
-      if (error) {
-        console.error('Supabase Error:', error);
-        alert(`[DATABASE ERROR] ${error.message}\n(Code: ${error.code})`);
-        return;
-      }
+      if (error) throw error;
 
       alert(`[SUCCESS] Emergency Report Transmitted!\nTicket Ref: ${ticketNo}\nStatus: PENDING ADMIN REVIEW`);
 
@@ -187,7 +190,7 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userRole =
         onSubmitSuccess();
       }
     } catch (err) {
-      alert(`[SYSTEM ERROR] ${err.message}`);
+      alert(`[SYSTEM ERROR] Could not submit report: ${err.message}`);
     } finally {
       setIsSubmitting(false);
     }
@@ -257,7 +260,7 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userRole =
           </div>
         </div>
 
-        {/* Step 3: Location Map */}
+        {/* Step 3: Map Location */}
         <div style={styles.formSection}>
           <div style={styles.labelRow}>
             <label style={styles.sectionLabel}>3. HAZARD LOCATION (TAP MAP TO PIN)</label>
@@ -285,15 +288,26 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userRole =
           </div>
         </div>
 
-        {/* Step 4: Photo Evidence */}
+        {/* Step 4: Photo Evidence Attachment with Removal */}
         <div style={styles.formSection}>
           <label style={styles.sectionLabel}>4. ATTACH PHOTO EVIDENCE</label>
-          <label style={styles.photoDropzone}>
-            <div style={styles.photoDropText}>
-              {photoAttached ? '✓ Photo Evidence Attached' : '+ Tap to Upload Photo'}
+
+          {photoData ? (
+            <div style={styles.photoPreviewCard}>
+              <img src={photoData.base64} alt="Attached Preview" style={styles.photoThumbnail} />
+              <div style={styles.photoInfoBox}>
+                <div style={styles.photoFileName}>{photoData.fileName}</div>
+                <button type="button" style={styles.removePhotoBtn} onClick={handleRemovePhoto}>
+                  Remove Attachment
+                </button>
+              </div>
             </div>
-            <input type="file" accept="image/*" onChange={handlePhotoUpload} style={{ display: 'none' }} />
-          </label>
+          ) : (
+            <label style={styles.photoDropzone}>
+              <div style={styles.photoDropText}>+ Tap to Upload Photo Evidence</div>
+              <input type="file" accept="image/*" onChange={handlePhotoUpload} style={{ display: 'none' }} />
+            </label>
+          )}
         </div>
 
         {/* Step 5: Remarks */}
@@ -343,6 +357,11 @@ const styles = {
   interactiveMapFrame: { borderRadius: '10px', overflow: 'hidden', border: '2px solid #0F766E' },
   photoDropzone: { border: '2px dashed #0F766E', backgroundColor: '#F0FDF4', padding: '14px', borderRadius: '12px', display: 'flex', justifyContent: 'center', cursor: 'pointer' },
   photoDropText: { fontSize: '11px', fontWeight: '800', color: '#0F766E' },
+  photoPreviewCard: { display: 'flex', alignItems: 'center', gap: '12px', backgroundColor: '#F0FDF4', border: '1px solid #A7F3D0', padding: '10px', borderRadius: '10px' },
+  photoThumbnail: { width: '60px', height: '60px', objectFit: 'cover', borderRadius: '6px', border: '1px solid #CBD5E1' },
+  photoInfoBox: { display: 'flex', flexDirection: 'column', gap: '4px', flex: 1 },
+  photoFileName: { fontSize: '11px', fontWeight: '700', color: '#0F172A', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '200px' },
+  removePhotoBtn: { backgroundColor: '#FEE2E2', border: '1px solid #FCA5A5', color: '#991B1B', padding: '4px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: '800', cursor: 'pointer', alignSelf: 'flex-start' },
   textArea: { width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '12px', boxSizing: 'border-box', fontFamily: 'inherit' },
   submitBtn: { width: '100%', padding: '12px', backgroundColor: '#0F766E', color: '#FFFFFF', border: 'none', borderRadius: '10px', fontSize: '13px', fontWeight: '800', cursor: 'pointer', marginTop: '8px' },
   submitBtnDisabled: { width: '100%', padding: '12px', backgroundColor: '#94A3B8', color: '#FFFFFF', border: 'none', borderRadius: '10px', fontSize: '13px', fontWeight: '800', cursor: 'not-allowed', marginTop: '8px' }

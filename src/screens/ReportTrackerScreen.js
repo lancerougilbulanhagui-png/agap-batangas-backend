@@ -1,262 +1,164 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { supabase } from '../supabaseClient';
 
-/**
- * Project AGAP Batangas - Vertical Report Tracker (Shopee / Delivery Tracking Style)
- */
 export default function ReportTrackerScreen({ onBack }) {
-  const [selectedFilter, setSelectedFilter] = useState('ALL');
-  const [expandedReportId, setExpandedReportId] = useState('REP-101');
+  const [reports, setReports] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [deviceId, setDeviceId] = useState('');
 
-  const mySubmittedReports = [
-    {
-      id: 'REP-101',
-      ticketNo: '#AGAP-2026-0812',
-      title: 'Flash Flood & River Overflow Alert',
-      category: 'FLOODING',
-      barangay: 'Brgy. Kumintang Ibaba (Bridge Sector)',
-      submittedAt: 'Today, 10:14 AM',
-      currentStatus: 'DISPATCHED',
-      statusLabel: 'Rescue Unit En Route',
-      assignedOfficer: 'Officer K. Ramos (CDRRMO Dispatch 04)',
-      assignedPhone: '(043) 702-3900',
-      description: 'Water level reached knee-deep near the bridge after heavy downpour. 3 households requesting sandbags.',
-      hasPhoto: true,
-      processSteps: [
-        { stepNo: 1, title: 'Report Logged', subtitle: 'Submission received & geo-tagged via AGAP Mobile', time: '10:14 AM', completed: true },
-        { stepNo: 2, title: 'Barangay Triage & Verification', subtitle: 'Brgy. Kumintang Ibaba Desk validated report accuracy', time: '10:18 AM', completed: true },
-        { stepNo: 3, title: 'Response Unit Dispatched', subtitle: 'CDRRMO Rescue Truck 04 & Sandbag Crew deployed', time: '10:25 AM', completed: true },
-        { stepNo: 4, title: 'Hazard Mitigation & Cleared', subtitle: 'On-site clearing and safety clearance signoff', time: 'Pending Completion', completed: false }
-      ]
-    },
-    {
-      id: 'REP-102',
-      ticketNo: '#AGAP-2026-0794',
-      title: 'Fallen Electric Cable & Live Wire Danger',
-      category: 'ELECTRICAL',
-      barangay: 'Brgy. Alangilan (Near CICS Building)',
-      submittedAt: 'Yesterday, 3:45 PM',
-      currentStatus: 'RESOLVED',
-      statusLabel: 'Hazard Resolved & Cleared',
-      assignedOfficer: 'Meralco / Batangas Electric Crew 2',
-      assignedPhone: '(043) 723-1422',
-      description: 'High voltage wire dangling over highway lane. Area cordoned off by barangay tanods.',
-      hasPhoto: true,
-      processSteps: [
-        { stepNo: 1, title: 'Report Logged', subtitle: 'Submission received via AGAP Citizen App', time: '3:45 PM', completed: true },
-        { stepNo: 2, title: 'Barangay Safety Triage', subtitle: 'Tanod unit deployed to secure perimeter', time: '3:50 PM', completed: true },
-        { stepNo: 3, title: 'Utility Crew Dispatched', subtitle: 'Meralco emergency lineman team arrived', time: '4:10 PM', completed: true },
-        { stepNo: 4, title: 'Hazard Mitigated & Closed', subtitle: 'Wire repaired and power safely restored', time: '4:55 PM', completed: true }
-      ]
-    },
-    {
-      id: 'REP-103',
-      ticketNo: '#AGAP-2026-0621',
-      title: 'Blocked Drainage Canal & Stagnant Spill',
-      category: 'INFRASTRUCTURE',
-      barangay: 'Brgy. Bolbok Corridor',
-      submittedAt: 'Oct 3, 2026, 1:20 PM',
-      currentStatus: 'UNDER_REVIEW',
-      statusLabel: 'Queued for Inspection',
-      assignedOfficer: 'City Engineering & Public Works Team',
-      assignedPhone: '(043) 723-2411',
-      description: 'Culvert clogged with plastic debris causing street puddle formation.',
-      hasPhoto: false,
-      processSteps: [
-        { stepNo: 1, title: 'Report Logged', subtitle: 'Report submitted and assigned reference ticket', time: '1:20 PM', completed: true },
-        { stepNo: 2, title: 'Engineering Review', subtitle: 'Scheduled for local declogging batch inspection', time: 'In Review', completed: false },
-        { stepNo: 3, title: 'Public Works Deployment', subtitle: 'Maintenance crew assignment pending', time: 'Pending', completed: false },
-        { stepNo: 4, title: 'Resolved', subtitle: 'Final inspection & photo confirmation', time: 'Pending', completed: false }
-      ]
+  useEffect(() => {
+    const localDeviceId = localStorage.getItem('agap_device_id') || '';
+    setDeviceId(localDeviceId);
+    fetchUserSubmittedReports(localDeviceId);
+  }, []);
+
+  const fetchUserSubmittedReports = async (targetDeviceId) => {
+    setIsLoading(true);
+    try {
+      let query = supabase.from('reports').select('*').order('created_at', { ascending: false });
+
+      if (targetDeviceId) {
+        query = query.eq('device_id', targetDeviceId);
+      }
+
+      const { data, error } = await query;
+      if (error) throw error;
+
+      if (data) setReports(data);
+    } catch (err) {
+      console.error('Tracker fetch error:', err.message);
+    } finally {
+      setIsLoading(false);
     }
-  ];
+  };
 
-  const filteredReports = mySubmittedReports.filter((item) => {
-    if (selectedFilter === 'ACTIVE') return item.currentStatus !== 'RESOLVED';
-    if (selectedFilter === 'RESOLVED') return item.currentStatus === 'RESOLVED';
-    return true;
-  });
+  // Maps database status string to 4 vertical progress steps
+  const getProgressSteps = (status) => {
+    const s = (status || 'PENDING').toUpperCase();
 
-  const toggleExpand = (id) => {
-    setExpandedReportId(expandedReportId === id ? null : id);
+    return [
+      {
+        stepNo: 1,
+        title: 'Report Logged',
+        subtitle: 'Submission received & geo-tagged via AGAP Mobile',
+        completed: true
+      },
+      {
+        stepNo: 2,
+        title: 'Barangay & CDRRMO Triage',
+        subtitle: 'LGU desk validated report location and details',
+        completed: s === 'APPROVED' || s === 'DISPATCHED' || s === 'RESOLVED'
+      },
+      {
+        stepNo: 3,
+        title: 'Response Unit Dispatched',
+        subtitle: 'Emergency team deployed to location',
+        completed: s === 'DISPATCHED' || s === 'RESOLVED'
+      },
+      {
+        stepNo: 4,
+        title: 'Hazard Resolved & Cleared',
+        subtitle: 'On-site clearing completed by LGU crew',
+        completed: s === 'RESOLVED'
+      }
+    ];
   };
 
   return (
     <div style={styles.container}>
-      {/* Clean Header */}
       <div style={styles.navHeader}>
         <button style={styles.backBtn} onClick={onBack}>
           &lt; Back
         </button>
         <div>
-          <h2 style={styles.headerTitle}>Report Tracker</h2>
-          <div style={styles.headerSub}>Live Delivery-Style Process Tracking</div>
+          <h2 style={styles.headerTitle}>My Report Tracker</h2>
+          <div style={styles.headerSub}>Live Database Dispatch Progress</div>
         </div>
       </div>
 
-      {/* Filter Tabs */}
-      <div style={styles.filterBar}>
-        {[
-          { key: 'ALL', label: 'All Reports (3)' },
-          { key: 'ACTIVE', label: 'In Progress (2)' },
-          { key: 'RESOLVED', label: 'Resolved (1)' }
-        ].map((tab) => (
-          <button
-            key={tab.key}
-            style={selectedFilter === tab.key ? styles.filterActive : styles.filterInactive}
-            onClick={() => setSelectedFilter(tab.key)}
-          >
-            {tab.label}
-          </button>
-        ))}
+      <div style={styles.refreshBar}>
+        <span style={styles.deviceText}>Device ID: {deviceId || 'Detecting...'}</span>
+        <button style={styles.refreshBtn} onClick={() => fetchUserSubmittedReports(deviceId)}>
+          Refresh Status
+        </button>
       </div>
 
-      {/* Vertical Reports List */}
-      <div style={styles.reportList}>
-        {filteredReports.map((report) => {
-          const isExpanded = expandedReportId === report.id;
+      {isLoading ? (
+        <div style={styles.emptyCard}>Fetching live report timeline from database...</div>
+      ) : reports.length === 0 ? (
+        <div style={styles.emptyCard}>
+          No reports found for this device. Submit a hazard report to track its live progress here.
+        </div>
+      ) : (
+        reports.map((rep) => {
+          const steps = getProgressSteps(rep.status);
 
           return (
-            <div key={report.id} style={styles.reportCard}>
-              <div style={styles.cardHeader} onClick={() => toggleExpand(report.id)}>
-                <div style={styles.cardTopRow}>
-                  <span style={styles.ticketTag}>{report.ticketNo}</span>
-                  <span
-                    style={
-                      report.currentStatus === 'RESOLVED'
-                        ? styles.badgeGreen
-                        : report.currentStatus === 'DISPATCHED'
-                        ? styles.badgeBlue
-                        : styles.badgeYellow
-                    }
-                  >
-                    {report.statusLabel}
-                  </span>
-                </div>
-
-                <h3 style={styles.reportTitle}>{report.title}</h3>
-                <div style={styles.locRow}>
-                  <span>📍 {report.barangay}</span>
-                  <span style={styles.timeText}>{report.submittedAt}</span>
-                </div>
-
-                <div style={styles.expandBar}>
-                  <span>{isExpanded ? 'Hide Live Timeline ▲' : 'View Process Timeline ▼'}</span>
-                </div>
+            <div key={rep.id || rep.created_at || rep.ticket_no || rep.location} style={styles.trackerCard}>
+              <div style={styles.cardHeader}>
+                <span style={styles.ticketBadge}>{rep.ticket_no || rep.id || '#AGAP-REPORT'}</span>
+                <span style={styles.statusPill}>{rep.status || 'PENDING'}</span>
               </div>
 
-              {/* Expandable Vertical Stepper Timeline */}
-              {isExpanded && (
-                <div style={styles.expandedContent}>
-                  <div style={styles.timelineTitle}>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#0F766E" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                      <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
-                    </svg>
-                    <span>LGU & DRRMO Response Timeline</span>
-                  </div>
+              <h3 style={styles.hazardTitle}>{rep.hazard_type || rep.category}</h3>
+              <div style={styles.metaText}>Location: {rep.location}</div>
+              <div style={styles.metaText}>Submitted: {rep.created_at ? new Date(rep.created_at).toLocaleString() : 'Recently'}</div>
 
-                  <div style={styles.verticalTimeline}>
-                    {report.processSteps.map((step, idx) => (
-                      <div key={step.stepNo} style={styles.timelineItem}>
-                        <div style={styles.stepperCol}>
-                          <div style={step.completed ? styles.circleActive : styles.circleInactive}>
-                            {step.completed ? '✓' : step.stepNo}
-                          </div>
-                          {idx < report.processSteps.length - 1 && (
-                            <div style={step.completed ? styles.lineActive : styles.lineInactive}></div>
-                          )}
-                        </div>
-
-                        <div style={styles.stepTextContent}>
-                          <div style={styles.stepTitleRow}>
-                            <span style={step.completed ? styles.stepTitleDone : styles.stepTitlePending}>
-                              {step.title}
-                            </span>
-                            <span style={styles.stepTimeTag}>{step.time}</span>
-                          </div>
-                          <div style={styles.stepSubtitle}>{step.subtitle}</div>
-                        </div>
+              {/* Shopee-style Vertical Logistics Timeline */}
+              <div style={styles.verticalTimeline}>
+                {steps.map((step, idx) => (
+                  <div key={step.stepNo} style={styles.timelineItem}>
+                    <div style={styles.lineCol}>
+                      <div style={step.completed ? styles.dotCompleted : styles.dotPending}>
+                        {step.completed ? '✓' : step.stepNo}
                       </div>
-                    ))}
-                  </div>
-
-                  <div style={styles.reportInfoBox}>
-                    <h4 style={styles.infoBoxHeading}>Submitted Ticket Metadata</h4>
-                    <p style={styles.descText}><strong>User Description:</strong> {report.description}</p>
-                    
-                    <div style={styles.infoMetaRow}>
-                      <div>
-                        <span style={styles.metaLabel}>Assigned Commander:</span>
-                        <div style={styles.metaVal}>{report.assignedOfficer}</div>
-                      </div>
-                      <div>
-                        <span style={styles.metaLabel}>Hotline:</span>
-                        <div style={styles.metaValTeal}>{report.assignedPhone}</div>
-                      </div>
+                      {idx < steps.length - 1 && (
+                        <div style={step.completed ? styles.lineCompleted : styles.linePending}></div>
+                      )}
                     </div>
 
-                    {report.hasPhoto && (
-                      <div style={styles.photoIndicator}>
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#0F766E" strokeWidth="2">
-                          <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
-                          <circle cx="8.5" cy="8.5" r="1.5"/>
-                          <polyline points="21 15 16 10 5 21"/>
-                        </svg>
-                        <span>1 Geotagged Photo Attachment Verified</span>
+                    <div style={styles.contentCol}>
+                      <div style={step.completed ? styles.stepTitleCompleted : styles.stepTitlePending}>
+                        {step.title}
                       </div>
-                    )}
+                      <div style={styles.stepSubtitle}>{step.subtitle}</div>
+                    </div>
                   </div>
-                </div>
-              )}
+                ))}
+              </div>
             </div>
           );
-        })}
-      </div>
+        })
+      )}
     </div>
   );
 }
 
 const styles = {
   container: { maxWidth: '440px', margin: '0 auto', padding: '16px', fontFamily: "'Inter', sans-serif" },
-  navHeader: { display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' },
+  navHeader: { display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' },
   backBtn: { backgroundColor: 'transparent', border: 'none', color: '#0F766E', fontSize: '14px', fontWeight: '700', cursor: 'pointer' },
   headerTitle: { fontSize: '18px', fontWeight: '800', color: '#0F172A', margin: 0 },
   headerSub: { fontSize: '11px', color: '#64748B' },
-  filterBar: { display: 'flex', gap: '8px', marginBottom: '16px' },
-  filterActive: { flex: 1, padding: '8px', backgroundColor: '#0F766E', color: '#FFFFFF', border: 'none', borderRadius: '8px', fontSize: '11px', fontWeight: '800', cursor: 'pointer' },
-  filterInactive: { flex: 1, padding: '8px', backgroundColor: '#E2E8F0', color: '#475569', border: 'none', borderRadius: '8px', fontSize: '11px', fontWeight: '600', cursor: 'pointer' },
-  reportList: { display: 'flex', flexDirection: 'column', gap: '12px' },
-  reportCard: { backgroundColor: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: '16px', overflow: 'hidden', boxShadow: '0 2px 6px rgba(0,0,0,0.02)' },
-  cardHeader: { padding: '14px', cursor: 'pointer' },
-  cardTopRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' },
-  ticketTag: { fontSize: '10px', fontWeight: '800', color: '#64748B', backgroundColor: '#F1F5F9', padding: '2px 6px', borderRadius: '4px' },
-  badgeBlue: { fontSize: '9px', fontWeight: '800', backgroundColor: '#E0F2FE', color: '#0369A1', padding: '3px 8px', borderRadius: '6px' },
-  badgeGreen: { fontSize: '9px', fontWeight: '800', backgroundColor: '#DCFCE7', color: '#166534', padding: '3px 8px', borderRadius: '6px' },
-  badgeYellow: { fontSize: '9px', fontWeight: '800', backgroundColor: '#FEF3C7', color: '#92400E', padding: '3px 8px', borderRadius: '6px' },
-  reportTitle: { fontSize: '14px', fontWeight: '800', color: '#0F172A', margin: '0 0 6px 0' },
-  locRow: { display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#64748B', fontWeight: '600', marginBottom: '10px' },
-  timeText: { color: '#94A3B8' },
-  expandBar: { fontSize: '11px', fontWeight: '800', color: '#0F766E', textAlign: 'center', paddingTop: '8px', borderTop: '1px dashed #E2E8F0' },
-  expandedContent: { backgroundColor: '#F8FAFC', padding: '14px', borderTop: '1px solid #E2E8F0' },
-  timelineTitle: { display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', fontWeight: '800', color: '#0F766E', marginBottom: '12px' },
-  verticalTimeline: { display: 'flex', flexDirection: 'column', marginBottom: '14px' },
-  timelineItem: { display: 'flex', gap: '12px', position: 'relative' },
-  stepperCol: { display: 'flex', flexDirection: 'column', alignItems: 'center', width: '24px' },
-  circleActive: { width: '22px', height: '22px', borderRadius: '50%', backgroundColor: '#0F766E', color: '#FFFFFF', fontSize: '10px', fontWeight: '800', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 2 },
-  circleInactive: { width: '22px', height: '22px', borderRadius: '50%', backgroundColor: '#CBD5E1', color: '#475569', fontSize: '10px', fontWeight: '800', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 2 },
-  lineActive: { width: '2px', height: '32px', backgroundColor: '#0F766E', margin: '2px 0' },
-  lineInactive: { width: '2px', height: '32px', backgroundColor: '#E2E8F0', margin: '2px 0' },
-  stepTextContent: { flex: 1, paddingBottom: '14px' },
-  stepTitleRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2px' },
-  stepTitleDone: { fontSize: '12px', fontWeight: '800', color: '#0F172A' },
+  refreshBar: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#F1F5F9', border: '1px solid #CBD5E1', padding: '8px 10px', borderRadius: '8px', marginBottom: '12px' },
+  deviceText: { fontSize: '10px', fontWeight: '700', color: '#475569' },
+  refreshBtn: { backgroundColor: '#0F766E', color: '#FFFFFF', border: 'none', padding: '4px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: '800', cursor: 'pointer' },
+  emptyCard: { backgroundColor: '#FFFFFF', border: '1px solid #CBD5E1', padding: '16px', borderRadius: '8px', textAlign: 'center', color: '#64748B', fontSize: '11px' },
+  trackerCard: { backgroundColor: '#FFFFFF', border: '1px solid #CBD5E1', borderRadius: '12px', padding: '14px', marginBottom: '12px' },
+  cardHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' },
+  ticketBadge: { fontSize: '10px', fontWeight: '800', backgroundColor: '#CCFBF1', color: '#0F766E', padding: '2px 6px', borderRadius: '4px' },
+  statusPill: { fontSize: '10px', fontWeight: '800', backgroundColor: '#DCFCE7', color: '#166534', padding: '2px 6px', borderRadius: '4px' },
+  hazardTitle: { fontSize: '14px', fontWeight: '800', color: '#0F172A', margin: '2px 0 4px 0' },
+  metaText: { fontSize: '10px', color: '#64748B', marginBottom: '2px' },
+  verticalTimeline: { marginTop: '14px', paddingTop: '10px', borderTop: '1px solid #F1F5F9' },
+  timelineItem: { display: 'flex', gap: '12px', marginBottom: '12px' },
+  lineCol: { display: 'flex', flexDirection: 'column', alignItems: 'center', width: '24px' },
+  dotCompleted: { width: '20px', height: '20px', borderRadius: '50%', backgroundColor: '#0F766E', color: '#FFFFFF', fontSize: '10px', fontWeight: '800', display: 'flex', justifyContent: 'center', alignItems: 'center' },
+  dotPending: { width: '20px', height: '20px', borderRadius: '50%', backgroundColor: '#E2E8F0', color: '#64748B', fontSize: '10px', fontWeight: '800', display: 'flex', justifyContent: 'center', alignItems: 'center' },
+  lineCompleted: { width: '2px', height: '100%', backgroundColor: '#0F766E', marginTop: '4px' },
+  linePending: { width: '2px', height: '100%', backgroundColor: '#E2E8F0', marginTop: '4px' },
+  contentCol: { flex: 1 },
+  stepTitleCompleted: { fontSize: '12px', fontWeight: '800', color: '#0F172A' },
   stepTitlePending: { fontSize: '12px', fontWeight: '600', color: '#94A3B8' },
-  stepTimeTag: { fontSize: '9px', color: '#64748B', fontWeight: '700' },
-  stepSubtitle: { fontSize: '10px', color: '#64748B', lineHeight: '1.3' },
-  reportInfoBox: { backgroundColor: '#FFFFFF', border: '1px solid #CBD5E1', borderRadius: '12px', padding: '12px' },
-  infoBoxHeading: { fontSize: '11px', fontWeight: '800', color: '#0F172A', margin: '0 0 6px 0' },
-  descText: { fontSize: '11px', color: '#475569', margin: '0 0 8px 0', lineHeight: '1.4' },
-  infoMetaRow: { display: 'flex', justifyContent: 'space-between', fontSize: '10px', borderTop: '1px solid #F1F5F9', paddingTop: '8px', marginBottom: '8px' },
-  metaLabel: { color: '#64748B', display: 'block' },
-  metaVal: { fontWeight: '800', color: '#0F172A' },
-  metaValTeal: { fontWeight: '800', color: '#0F766E' },
-  photoIndicator: { display: 'flex', alignItems: 'center', gap: '6px', fontSize: '10px', color: '#0F766E', fontWeight: '700', backgroundColor: '#F0FDF4', padding: '6px', borderRadius: '6px' }
+  stepSubtitle: { fontSize: '10px', color: '#64748B', marginTop: '2px', lineHeight: '1.3' }
 };

@@ -2,690 +2,413 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
 
 export default function AdminScreen({ onBack }) {
-  const [adminTab, setAdminTab] = useState('database'); // 'database' | 'analytics' | 'users' | 'verifications'
-  const [selectedReport, setSelectedReport] = useState(null);
-  const [selectedUser, setSelectedUser] = useState(null);
-  const [selectedVerification, setSelectedVerification] = useState(null);
+  const [activeTab, setActiveTab] = useState('REPORTS'); // 'REPORTS' | 'USERS' | 'ANALYTICS'
   const [reports, setReports] = useState([]);
   const [profiles, setProfiles] = useState([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [noticeText, setNoticeText] = useState('');
-  const [assignedUnit, setAssignedUnit] = useState('CDRRMO Rescue Truck 04');
-  const [timeFilter, setTimeFilter] = useState('DAY'); // 'DAY' | 'WEEK' | 'MONTH' | 'YEAR'
-  const [summaryText, setSummaryText] = useState('');
-  const [isProcessingAction, setIsProcessingAction] = useState(false);
-
-  const fetchLiveData = async () => {
-    setIsLoading(true);
-    try {
-      const { data: reportData } = await supabase
-        .from('reports')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      const { data: profileData } = await supabase
-        .from('profiles')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (reportData) setReports(reportData);
-      if (profileData) setProfiles(profileData);
-    } catch (err) {
-      console.error('Fetch error:', err.message);
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  const [userFilterTab, setUserFilterTab] = useState('PENDING'); // 'PENDING' | 'VERIFIED' | 'DELETED'
+  
+  // Image Inspection Modal State
+  const [inspectImage, setInspectImage] = useState(null);
 
   useEffect(() => {
-    fetchLiveData();
+    fetchAdminData();
   }, []);
 
-  const getPhotoList = (photosData) => {
-    if (!photosData) return [];
-    if (Array.isArray(photosData)) return photosData;
-    if (typeof photosData === 'string') {
-      try {
-        const parsed = JSON.parse(photosData);
-        return Array.isArray(parsed) ? parsed : [parsed];
-      } catch (e) {
-        return [photosData];
-      }
+  const fetchAdminData = async () => {
+    try {
+      // Fetch Reports
+      const { data: repData } = await supabase
+        .from('reports')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (repData) setReports(repData);
+
+      // Fetch Profiles
+      const { data: profData } = await supabase
+        .from('profiles')
+        .select('*');
+
+      if (profData) setProfiles(profData);
+    } catch (err) {
+      console.error('Admin fetch error:', err.message);
     }
-    return [];
   };
 
-  const openGpsInGoogleMaps = (coordString) => {
-    if (!coordString) return;
-
-    const cleanCoords = coordString
-      .replace(/[^0-9.,NnSsEeWw\s]/g, '')
-      .trim() || 'Batangas City';
-
-    const googleMapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(cleanCoords)}`;
-    window.open(googleMapsUrl, '_blank', 'noopener,noreferrer');
-  };
-
-  const openInspector = (report) => {
-    setSelectedReport(report);
-    setNoticeText(
-      `[AGAP DISPATCH NOTICE]: Response Unit (${assignedUnit}) assigned to report "${report.report_type || report.title || report.category || 'Hazard Report'}" at ${report.location}.`
-    );
-  };
-
-  const handleUpdateReportStatus = async (statusType) => {
-    if (!selectedReport) return;
-
-    setIsProcessingAction(true);
+  const handleUpdateReportStatus = async (reportId, newStatus) => {
     try {
       const { error } = await supabase
         .from('reports')
-        .update({ status: statusType })
-        .eq('id', selectedReport.id);
+        .update({ status: newStatus })
+        .eq('id', reportId);
 
       if (error) throw error;
 
-      alert(`[SUCCESS] Ticket ${selectedReport.id} marked as ${statusType}.`);
-      setReports((prev) =>
-        prev.map((r) => (r.id === selectedReport.id ? { ...r, status: statusType } : r))
-      );
-      setSelectedReport(null);
+      alert(`Report ${reportId} status updated to: ${newStatus}`);
+      fetchAdminData();
     } catch (err) {
-      alert(`[ERROR] Failed to update report: ${err.message}`);
-    } finally {
-      setIsProcessingAction(false);
+      alert(`Update failed: ${err.message}`);
     }
   };
 
-  const handleDeleteReport = async (reportId) => {
-    if (window.confirm(`Permanently delete report ticket [${reportId}] from database?`)) {
-      setIsProcessingAction(true);
-      try {
-        const { error } = await supabase.from('reports').delete().eq('id', reportId);
-        if (error) throw error;
-
-        alert(`[PURGED] Report ticket ${reportId} deleted.`);
-        setReports((prev) => prev.filter((r) => r.id !== reportId));
-        if (selectedReport && selectedReport.id === reportId) setSelectedReport(null);
-      } catch (err) {
-        alert(`[ERROR] Delete failed: ${err.message}`);
-      } finally {
-        setIsProcessingAction(false);
-      }
-    }
-  };
-
-  const handlePurgeAllUserReports = async (deviceId) => {
-    if (window.confirm(`Purge ALL submitted reports from Device ID [${deviceId}]?`)) {
-      setIsProcessingAction(true);
-      try {
-        const { error } = await supabase.from('reports').delete().eq('device_id', deviceId);
-        if (error) throw error;
-
-        alert(`[PURGED] All submissions from Device [${deviceId}] deleted.`);
-        setReports((prev) => prev.filter((r) => r.device_id !== deviceId));
-        setSelectedUser(null);
-      } catch (err) {
-        alert(`[ERROR] User purge failed: ${err.message}`);
-      } finally {
-        setIsProcessingAction(false);
-      }
-    }
-  };
-
-  const handleVerifyCitizen = async (profileId, approveStatus) => {
+  const handleUpdateUserStatus = async (deviceId, newStatus) => {
     try {
-      const newRole = approveStatus === 'VERIFIED' ? 'CITIZEN' : 'GUEST';
       const { error } = await supabase
         .from('profiles')
-        .update({
-          verification_status: approveStatus,
-          user_role: newRole
-        })
-        .eq('id', profileId);
+        .update({ verification_status: newStatus })
+        .eq('device_id', deviceId);
 
       if (error) throw error;
 
-      alert(`[UPDATE] Residency application set to ${approveStatus}.`);
-      setProfiles((prev) =>
-        prev.map((p) =>
-          p.id === profileId
-            ? { ...p, verification_status: approveStatus, user_role: newRole }
-            : p
-        )
-      );
-      setSelectedVerification(null);
+      alert(`User verification status set to: ${newStatus}`);
+      fetchAdminData();
     } catch (err) {
-      alert(`[ERROR] Verification update failed: ${err.message}`);
+      alert(`Update failed: ${err.message}`);
     }
   };
 
-  // Database-Connected Analytics Calculations
-  const calculateDatabaseChartData = () => {
-    const now = new Date();
-
-    if (timeFilter === 'DAY') {
-      const intervals = ['00:00', '04:00', '08:00', '12:00', '16:00', '20:00'];
-      const counts = new Array(6).fill(0);
-      reports.forEach((r) => {
-        const rDate = new Date(r.created_at || now);
-        if ((now - rDate) <= 86400000) {
-          const hour = rDate.getHours();
-          const bucketIndex = Math.min(Math.floor(hour / 4), 5);
-          counts[bucketIndex] += 1;
-        }
-      });
-      return { labels: intervals, values: counts };
-    }
-
-    if (timeFilter === 'WEEK') {
-      const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-      const counts = new Array(7).fill(0);
-      reports.forEach((r) => {
-        const rDate = new Date(r.created_at || now);
-        if ((now - rDate) <= 604800000) {
-          counts[rDate.getDay()] += 1;
-        }
-      });
-      return { labels: days, values: counts };
-    }
-
-    if (timeFilter === 'MONTH') {
-      const weeks = ['Week 1', 'Week 2', 'Week 3', 'Week 4'];
-      const counts = new Array(4).fill(0);
-      reports.forEach((r) => {
-        const rDate = new Date(r.created_at || now);
-        if ((now - rDate) <= 2592000000) {
-          const dayOfMonth = rDate.getDate();
-          const bucket = Math.min(Math.floor((dayOfMonth - 1) / 7), 3);
-          counts[bucket] += 1;
-        }
-      });
-      return { labels: weeks, values: counts };
-    }
-
-    // YEAR
-    const quarters = ['Q1', 'Q2', 'Q3', 'Q4'];
-    const counts = new Array(4).fill(0);
-    reports.forEach((r) => {
-      const rDate = new Date(r.created_at || now);
-      if (rDate.getFullYear() === now.getFullYear()) {
-        const q = Math.floor(rDate.getMonth() / 3);
-        counts[q] += 1;
-      }
-    });
-    return { labels: quarters, values: counts };
-  };
-
-  const dbChart = calculateDatabaseChartData();
-  const maxDbChartVal = Math.max(...dbChart.values, 1);
-
-  const generatePeriodSummary = () => {
-    const totalInPeriod = dbChart.values.reduce((a, b) => a + b, 0);
-    if (totalInPeriod === 0) {
-      setSummaryText(`NO REPORTS RECORDED IN DATABASE for the selected timeframe (${timeFilter}). System is operating at zero logged hazard incidents.`);
+  // 2nd Verification: Purge All Deleted User Applications
+  const handlePurgeAllDeleted = async () => {
+    const deletedUsers = profiles.filter(p => p.verification_status === 'DELETED');
+    if (deletedUsers.length === 0) {
+      alert('No deleted applications to purge.');
       return;
     }
 
-    const approvedCount = reports.filter((r) => r.status === 'APPROVED').length;
-    const pendingCount = reports.filter((r) => r.status === 'PENDING').length;
+    if (window.confirm(`[2nd Verification Check] Are you sure you want to permanently purge all ${deletedUsers.length} deleted application records?`)) {
+      try {
+        const { error } = await supabase
+          .from('profiles')
+          .delete()
+          .eq('verification_status', 'DELETED');
 
-    setSummaryText(
-      `DATABASE SUMMARY (${timeFilter} FILTER): ${totalInPeriod} report(s) logged in database. ` +
-      `${approvedCount} approved & dispatched, ${pendingCount} pending review. ` +
-      `System status: Active monitoring connected to live Supabase backend.`
-    );
+        if (error) throw error;
+
+        alert('✓ All deleted applications permanently purged.');
+        fetchAdminData();
+      } catch (err) {
+        alert(`Purge failed: ${err.message}`);
+      }
+    }
   };
+
+  const filteredProfiles = profiles.filter(p => {
+    const status = p.verification_status || 'PENDING';
+    if (userFilterTab === 'VERIFIED') return status === 'VERIFIED';
+    if (userFilterTab === 'DELETED') return status === 'DELETED';
+    return status === 'PENDING';
+  });
 
   return (
     <div style={styles.container}>
+      {/* Navigation Header */}
       <div style={styles.navHeader}>
         <button style={styles.backBtn} onClick={onBack}>
           &lt; Back
         </button>
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <h2 style={styles.headerTitle}>CDRRMO Command Center</h2>
-            <span style={styles.adminBadge}>ADMIN</span>
-          </div>
-          <div style={styles.headerSub}>Batangas City Disaster Operations Platform</div>
+          <h2 style={styles.headerTitle}>CDRRMO Command Portal</h2>
+          <div style={styles.headerSub}>Admin Disaster Control & Moderation</div>
         </div>
       </div>
 
-      {/* 1. DATABASE FEED TAB */}
-      {adminTab === 'database' && !selectedReport && (
-        <div style={styles.viewSection}>
-          <div style={styles.sectionHeaderRow}>
-            <span style={styles.sectionHeader}>Submitted Reports ({reports.length})</span>
-            <button style={styles.refreshBtn} onClick={fetchLiveData} disabled={isLoading}>
-              {isLoading ? 'Syncing...' : 'Sync Feed'}
-            </button>
-          </div>
+      {/* Main Tab Navigation */}
+      <div style={styles.tabRow}>
+        <button
+          style={activeTab === 'REPORTS' ? styles.tabActive : styles.tabInactive}
+          onClick={() => setActiveTab('REPORTS')}
+        >
+          Reports ({reports.length})
+        </button>
+        <button
+          style={activeTab === 'USERS' ? styles.tabActive : styles.tabInactive}
+          onClick={() => setActiveTab('USERS')}
+        >
+          User Verification
+        </button>
+        <button
+          style={activeTab === 'ANALYTICS' ? styles.tabActive : styles.tabInactive}
+          onClick={() => setActiveTab('ANALYTICS')}
+        >
+          Monthly Trends
+        </button>
+      </div>
 
+      {/* 1. REPORT MODERATION TAB */}
+      {activeTab === 'REPORTS' && (
+        <div style={styles.sectionStack}>
+          <div style={styles.sectionTitle}>Incident Reports Stream</div>
           {reports.length === 0 ? (
-            <div style={styles.emptyCard}>No hazard reports submitted in database.</div>
+            <div style={styles.emptyCard}>No hazard reports submitted yet.</div>
           ) : (
-            <div style={styles.reportList}>
-              {reports.map((item) => (
-                <div key={item.id || item.report_id || item._id} style={styles.fileCard}>
-                  <div style={styles.fileCardHeader}>
-                    <span style={styles.fileIdTag}>{item.id || item.report_id || 'N/A'}</span>
-                    <span style={styles.statusBadge}>{item.status || 'PENDING'}</span>
+            reports.map((rep) => (
+              <div key={rep.id || rep.ticket_no || 'report'} style={styles.reportCard}>
+                <div style={styles.cardHeader}>
+                  <span style={styles.ticketBadge}>{rep.ticket_no || rep.id || 'TICKET'}</span>
+                  <span style={styles.severityTag}>{rep.severity || 'UNKNOWN'}</span>
+                </div>
+
+                <h4 style={styles.reportTitle}>{rep.hazard_type || rep.category}</h4>
+                <div style={styles.reportMeta}>Location: {rep.location}</div>
+                <div style={styles.reportMeta}>Status: <strong>{rep.status || 'PENDING'}</strong></div>
+                <p style={styles.reportDesc}>{rep.description}</p>
+
+                {/* Submitted Photo Evidence with Click-to-Inspect Modal */}
+                {rep.proof_photos && (
+                  <div style={styles.photoContainer}>
+                    <span style={styles.photoLabel}>Attached Evidence (Click to Inspect):</span>
+                    <img
+                      src={rep.proof_photos}
+                      alt="Hazard Evidence"
+                      style={styles.clickableThumbnail}
+                      onClick={() => setInspectImage(rep.proof_photos)}
+                    />
                   </div>
-                  <h3 style={styles.fileTitle}>{item.report_type || item.title || item.category}</h3>
-                  <div style={styles.fileMeta}>Location: {item.location}</div>
-                  <div style={styles.fileMeta}>Submitter: {item.sender_name || 'Citizen'} ({item.user_role || 'CITIZEN'})</div>
-                  <div style={styles.fileMeta}>Severity: <strong style={{ color: '#DC2626' }}>{item.severity}</strong></div>
-                  <button style={styles.processFileBtn} onClick={() => openInspector(item)}>
-                    Inspect Report &rarr;
+                )}
+
+                {/* Status Action Buttons */}
+                <div style={styles.actionBtnGroup}>
+                  <button
+                    style={styles.btnApprove}
+                    onClick={() => handleUpdateReportStatus(rep.id, 'APPROVED')}
+                  >
+                    Approve
+                  </button>
+                  <button
+                    style={styles.btnDispatch}
+                    onClick={() => handleUpdateReportStatus(rep.id, 'DISPATCHED')}
+                  >
+                    Dispatch Unit
+                  </button>
+                  <button
+                    style={styles.btnResolve}
+                    onClick={() => handleUpdateReportStatus(rep.id, 'RESOLVED')}
+                  >
+                    Resolve
+                  </button>
+                  <button
+                    style={styles.btnDelete}
+                    onClick={() => handleUpdateReportStatus(rep.id, 'DELETED')}
+                  >
+                    Delete
                   </button>
                 </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* 2. ANALYTICS TAB WITH DATABASE CONNECTED GRAPH */}
-      {adminTab === 'analytics' && (
-        <div style={styles.viewSection}>
-          <div style={styles.sectionHeader}>DATABASE ANALYTICS & GRAPH</div>
-
-          <div style={styles.filterBar}>
-            {['DAY', 'WEEK', 'MONTH', 'YEAR'].map((filter) => (
-              <button
-                key={filter}
-                style={timeFilter === filter ? styles.filterBtnActive : styles.filterBtnInactive}
-                onClick={() => { setTimeFilter(filter); setSummaryText(''); }}
-              >
-                {filter}
-              </button>
-            ))}
-          </div>
-
-          <div style={styles.chartCard}>
-            <div style={styles.chartHeader}>
-              <span style={styles.chartTitle}>Submission Volume Graph ({timeFilter} VIEW)</span>
-              <span style={styles.chartSub}>Live Records in Supabase Database</span>
-            </div>
-
-            <div style={styles.barGraphContainer}>
-              {dbChart.values.map((val, idx) => {
-                const barHeight = Math.round((val / maxDbChartVal) * 100);
-                return (
-                  <div key={idx} style={styles.barCol}>
-                    <span style={styles.barValText}>{val}</span>
-                    <div style={styles.barTrack}>
-                      <div style={{ ...styles.barFill, height: `${val === 0 ? 4 : barHeight}%` }}></div>
-                    </div>
-                    <span style={styles.barLabelText}>{dbChart.labels[idx]}</span>
-                  </div>
-                );
-              })}
-            </div>
-
-            <button style={styles.summaryActionBtn} onClick={generatePeriodSummary}>
-              Generate Period Summary
-            </button>
-
-            {summaryText && <div style={styles.summaryOutputCard}>{summaryText}</div>}
-          </div>
-        </div>
-      )}
-
-      {/* 3. USER MODERATION TAB */}
-      {adminTab === 'users' && !selectedUser && (
-        <div style={styles.viewSection}>
-          <div style={styles.sectionHeader}>USER MODERATION & DEVICES</div>
-
-          {profiles.length === 0 ? (
-            <div style={styles.emptyCard}>No registered profiles in database.</div>
-          ) : (
-            <div style={styles.reportList}>
-              {profiles.map((prof) => (
-                <div key={prof.device_id || prof.id || prof.full_name || 'profile'} style={styles.fileCard}>
-                  <div style={styles.fileCardHeader}>
-                    <span style={{ fontSize: '12px', fontWeight: '800', color: '#0F172A' }}>{prof.full_name || 'User Profile'}</span>
-                    <span style={styles.statusBadge}>{prof.user_role || 'GUEST'}</span>
-                  </div>
-                  <div style={styles.fileMeta}>Device ID: {prof.device_id}</div>
-                  <div style={styles.fileMeta}>Status: {prof.verification_status || 'UNVERIFIED'}</div>
-                  <button style={styles.processFileBtn} onClick={() => setSelectedUser(prof)}>
-                    Inspect User Reports & Purge &rarr;
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {adminTab === 'users' && selectedUser && (
-        <div style={styles.viewSection}>
-          <button style={styles.closeSheetBtn} onClick={() => setSelectedUser(null)}>
-            &lt; Back to Users
-          </button>
-          <div style={styles.formSectionCard}>
-            <label style={styles.formSectionLabel}>USER INFORMATION</label>
-            <div style={styles.formValueTextBold}>{selectedUser.full_name}</div>
-            <div style={styles.formSubText}>Device ID: {selectedUser.device_id}</div>
-            <div style={styles.formSubText}>Phone: {selectedUser.phone || 'N/A'} | Role: {selectedUser.user_role}</div>
-          </div>
-
-          <div style={{ ...styles.sectionHeader, marginTop: '12px' }}>
-            SUBMISSIONS FROM THIS DEVICE ({reports.filter((r) => r.device_id === selectedUser.device_id).length})
-          </div>
-
-          {reports.filter((r) => r.device_id === selectedUser.device_id).length === 0 ? (
-            <div style={styles.emptyCard}>No submissions logged from this device.</div>
-          ) : (
-            <div style={styles.reportList}>
-              {reports
-                .filter((r) => r.device_id === selectedUser.device_id)
-                .map((r) => (
-                  <div key={r.id || `${r.device_id}-${r.created_at}`} style={styles.fileCard}>
-                    <div style={styles.fileCardHeader}>
-                      <span style={styles.fileIdTag}>{r.id || 'N/A'}</span>
-                      <span style={styles.statusBadge}>{r.status}</span>
-                    </div>
-                    <div style={styles.fileTitle}>{r.report_type || r.title || r.category}</div>
-                    <div style={styles.fileMeta}>Location: {r.location}</div>
-                  </div>
-                ))}
-            </div>
-          )}
-
-          <button
-            style={{ ...styles.btnDanger, marginTop: '12px', width: '100%' }}
-            onClick={() => handlePurgeAllUserReports(selectedUser.device_id)}
-          >
-            Purge All Reports From This Device
-          </button>
-        </div>
-      )}
-
-      {/* 4. CITIZEN VERIFICATION TAB */}
-      {adminTab === 'verifications' && !selectedVerification && (
-        <div style={styles.viewSection}>
-          <div style={styles.sectionHeader}>PENDING CITIZEN APPLICATIONS</div>
-
-          {profiles.filter((p) => p.verification_status === 'PENDING').length === 0 ? (
-            <div style={styles.emptyCard}>No pending citizen applications.</div>
-          ) : (
-            <div style={styles.reportList}>
-              {profiles
-                .filter((p) => p.verification_status === 'PENDING')
-                .map((prof) => (
-                  <div key={prof.device_id || prof.id || prof.full_name || 'verification'} style={styles.fileCard}>
-                    <div style={styles.fileCardHeader}>
-                      <span style={{ fontSize: '13px', fontWeight: '800', color: '#0F172A' }}>{prof.full_name}</span>
-                      <span style={styles.statusBadgeYellow}>PENDING</span>
-                    </div>
-                    <button style={styles.processFileBtn} onClick={() => setSelectedVerification(prof)}>
-                      Review Application Data &rarr;
-                    </button>
-                  </div>
-                ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {adminTab === 'verifications' && selectedVerification && (
-        <div style={styles.viewSection}>
-          <button style={styles.closeSheetBtn} onClick={() => setSelectedVerification(null)}>
-            &lt; Back to Applications
-          </button>
-          <div style={styles.formSectionCard}>
-            <label style={styles.formSectionLabel}>APPLICANT SUBMITTED METADATA</label>
-            <div style={styles.formValueTextBold}>{selectedVerification.full_name}</div>
-            <div style={styles.formSubText}>Barangay: {selectedVerification.barangay}</div>
-            <div style={styles.formSubText}>Phone: {selectedVerification.phone || 'N/A'}</div>
-            <div style={styles.formSubText}>Device ID: {selectedVerification.device_id}</div>
-
-            {selectedVerification.proof_photo && (
-              <div style={styles.proofPreviewBox}>
-                <span style={{ fontSize: '10px', fontWeight: '800', color: '#475569' }}>PROOFS ATTACHED:</span>
-                <img src={selectedVerification.proof_photo} alt="ID Proof" style={styles.proofImg} />
               </div>
-            )}
-
-            <div style={{ ...styles.actionButtonGroup, marginTop: '12px' }}>
-              <button
-                style={styles.btnApprove}
-                onClick={() => handleVerifyCitizen(selectedVerification.device_id, 'VERIFIED')}
-              >
-                Approve Verified Citizen Status
-              </button>
-              <button
-                style={styles.btnReject}
-                onClick={() => handleVerifyCitizen(selectedVerification.device_id, 'REJECTED')}
-              >
-                Decline Application
-              </button>
-            </div>
-          </div>
+            ))
+          )}
         </div>
       )}
 
-      {/* INSPECTOR MODAL */}
-      {selectedReport && (
-        <div style={styles.formSheetContainer}>
-          <div style={styles.formSheetHeaderCard}>
-            <div style={styles.formSheetTitleRow}>
-              <div>
-                <span style={styles.formSheetSub}>INCIDENT RESPONSE INSPECTOR</span>
-                <h2 style={styles.formSheetTitle}>Ticket: {selectedReport.id}</h2>
-              </div>
-              <button style={styles.closeSheetBtn} onClick={() => setSelectedReport(null)}>
-                Close
-              </button>
-            </div>
-          </div>
-
-          <div style={styles.formSectionCard}>
-            <label style={styles.formSectionLabel}>1. SUBMITTER INFO</label>
-            <div style={styles.formValueText}>{selectedReport.sender_name || 'Anonymous Submitter'}</div>
-            <div style={styles.formSubText}>Role: {selectedReport.user_role || 'CITIZEN'} | Device: {selectedReport.device_id || 'N/A'}</div>
-          </div>
-
-          <div style={styles.formSectionCard}>
-            <label style={styles.formSectionLabel}>2. HAZARD TYPE & SEVERITY</label>
-            <div style={styles.formValueTextBold}>{selectedReport.report_type || selectedReport.category}</div>
-            <div style={{ ...styles.formValueTextBold, color: '#DC2626', marginTop: '2px' }}>Severity: {selectedReport.severity}</div>
-          </div>
-
-          <div style={styles.formSectionCard}>
-            <label style={styles.formSectionLabel}>3. LOCATION & GPS COORDINATES</label>
-            <div style={styles.formValueText}>Location: {selectedReport.location}</div>
+      {/* 2. COMPACT USER VERIFICATION TAB */}
+      {activeTab === 'USERS' && (
+        <div style={styles.sectionStack}>
+          {/* Sub-Filter Tabs */}
+          <div style={styles.subTabRow}>
             <button
-              style={styles.gpsRedirectBtn}
-              onClick={() => openGpsInGoogleMaps(selectedReport.coordinates || selectedReport.location)}
+              style={userFilterTab === 'PENDING' ? styles.subTabActive : styles.subTabInactive}
+              onClick={() => setUserFilterTab('PENDING')}
             >
-              Open Coordinates in Google Maps ({selectedReport.coordinates || 'Redirect'})
+              Pending
+            </button>
+            <button
+              style={userFilterTab === 'VERIFIED' ? styles.subTabActive : styles.subTabInactive}
+              onClick={() => setUserFilterTab('VERIFIED')}
+            >
+              Approved
+            </button>
+            <button
+              style={userFilterTab === 'DELETED' ? styles.subTabActive : styles.subTabInactive}
+              onClick={() => setUserFilterTab('DELETED')}
+            >
+              Deleted
             </button>
           </div>
 
-          <div style={styles.formSectionCard}>
-            <label style={styles.formSectionLabel}>4. HAZARD REMARKS</label>
-            <p style={styles.formParagraphText}>{selectedReport.description || selectedReport.details || 'No remarks.'}</p>
-          </div>
+          {userFilterTab === 'DELETED' && (
+            <button style={styles.purgeBtn} onClick={handlePurgeAllDeleted}>
+              Purge All Deleted Applications (2nd Verification)
+            </button>
+          )}
 
-          <div style={styles.formSectionCard}>
-            <label style={styles.formSectionLabel}>5. ATTACHED PHOTO EVIDENCE</label>
-            {getPhotoList(selectedReport.photos || selectedReport.photo_url || selectedReport.image_url || selectedReport.evidence || []).length > 0 ? (
-              <div style={styles.imageGrid}>
-                {getPhotoList(selectedReport.photos || selectedReport.photo_url || selectedReport.image_url || selectedReport.evidence || []).map((photoSrc, idx) => (
-                  <div key={idx} style={styles.imageCard}>
-                    {typeof photoSrc === 'string' && photoSrc.startsWith('data:image') ? (
-                      <img src={photoSrc} alt={`Evidence ${idx + 1}`} style={styles.evidenceImage} />
-                    ) : (
-                      <div style={styles.fallbackPhotoBox}>{String(photoSrc)}</div>
+          {/* Compact Space-Saving User Table */}
+          <div style={styles.compactUserList}>
+            {filteredProfiles.length === 0 ? (
+              <div style={styles.emptyCard}>No user applications in this folder.</div>
+            ) : (
+              filteredProfiles.map((user) => (
+                <div key={user.device_id || user.id || user.username || 'user'} style={styles.compactUserRow}>
+                  <div style={styles.userInfoCol}>
+                    <div style={styles.userNameText}>@{user.username || 'Unregistered'}</div>
+                    <div style={styles.userDeviceText}>Device: {user.device_id}</div>
+                  </div>
+
+                  <div style={styles.userActionsCol}>
+                    {userFilterTab === 'PENDING' && (
+                      <>
+                        <button
+                          style={styles.btnMiniVerify}
+                          onClick={() => handleUpdateUserStatus(user.device_id, 'VERIFIED')}
+                        >
+                          Approve
+                        </button>
+                        <button
+                          style={styles.btnMiniDelete}
+                          onClick={() => handleUpdateUserStatus(user.device_id, 'DELETED')}
+                        >
+                          Reject
+                        </button>
+                      </>
+                    )}
+
+                    {userFilterTab === 'VERIFIED' && (
+                      <span style={styles.verifiedPill}>VERIFIED</span>
+                    )}
+
+                    {userFilterTab === 'DELETED' && (
+                      <span style={styles.deletedPill}>ARCHIVED</span>
                     )}
                   </div>
-                ))}
-              </div>
-            ) : (
-              <div style={styles.formSubText}>No photo evidence attached.</div>
+                </div>
+              ))
             )}
           </div>
+        </div>
+      )}
 
-          <div style={styles.formActionCard}>
-            <label style={styles.formSectionLabel}>6. DISPATCH ACTIONS</label>
+      {/* 3. MONTHLY ANALYTICS TREND GRAPH */}
+      {activeTab === 'ANALYTICS' && (
+        <div style={styles.sectionStack}>
+          <div style={styles.sectionTitle}>Monthly Incident Volume Trends (2026)</div>
+          
+          <div style={styles.chartCard}>
+            {/* SVG Line & Area Graph */}
+            <svg viewBox="0 0 360 180" style={styles.svgChart}>
+              <defs>
+                <linearGradient id="chartGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#0F766E" stopOpacity="0.4" />
+                  <stop offset="100%" stopColor="#0F766E" stopOpacity="0.0" />
+                </linearGradient>
+              </defs>
 
-            <div style={styles.inputGroup}>
-              <label style={styles.inputLabelText}>ASSIGN RESPONDER UNIT:</label>
-              <select
-                style={styles.selectInput}
-                value={assignedUnit}
-                onChange={(e) => {
-                  setAssignedUnit(e.target.value);
-                  setNoticeText(
-                    `[AGAP DISPATCH NOTICE]: Response Unit (${e.target.value}) assigned to report "${selectedReport.report_type || selectedReport.title}" at ${selectedReport.location}.`
-                  );
-                }}
-              >
-                <option value="CDRRMO Rescue Truck 04">CDRRMO Rescue Truck 04</option>
-                <option value="BFP Alangilan Sub-Station Fire Unit">BFP Alangilan Sub-Station Fire Unit</option>
-                <option value="PNP Station 2 Patrol Unit">PNP Station 2 Patrol Unit</option>
-                <option value="BatMC Emergency Ambulance Team">BatMC Emergency Ambulance Team</option>
-              </select>
-            </div>
+              {/* Grid Lines */}
+              <line x1="30" y1="30" x2="340" y2="30" stroke="#E2E8F0" strokeWidth="1" />
+              <line x1="30" y1="70" x2="340" y2="70" stroke="#E2E8F0" strokeWidth="1" />
+              <line x1="30" y1="110" x2="340" y2="110" stroke="#E2E8F0" strokeWidth="1" />
+              <line x1="30" y1="150" x2="340" y2="150" stroke="#CBD5E1" strokeWidth="1.5" />
 
-            <div style={styles.inputGroup}>
-              <label style={styles.inputLabelText}>SYSTEM / SMS NOTICE TO SUBMITTER:</label>
-              <textarea
-                style={styles.textArea}
-                rows="3"
-                value={noticeText}
-                onChange={(e) => setNoticeText(e.target.value)}
-              ></textarea>
-            </div>
+              {/* Area Fill */}
+              <path
+                d="M30 150 L30 120 Q 80 140, 110 90 T 190 70 T 270 40 T 340 80 L340 150 Z"
+                fill="url(#chartGrad)"
+              />
 
-            <div style={styles.actionButtonGroup}>
-              <button
-                style={isProcessingAction ? styles.btnDisabled : styles.btnApprove}
-                onClick={() => handleUpdateReportStatus('APPROVED')}
-                disabled={isProcessingAction}
-              >
-                Approve and Dispatch
-              </button>
-              <button
-                style={isProcessingAction ? styles.btnDisabled : styles.btnReject}
-                onClick={() => handleUpdateReportStatus('REJECTED')}
-                disabled={isProcessingAction}
-              >
-                Reject Report
-              </button>
-              <button
-                style={isProcessingAction ? styles.btnDisabled : styles.btnDanger}
-                onClick={() => handleDeleteReport(selectedReport.id)}
-                disabled={isProcessingAction}
-              >
-                Delete Report from Database
-              </button>
+              {/* Trend Line */}
+              <path
+                d="M30 120 Q 80 140, 110 90 T 190 70 T 270 40 T 340 80"
+                fill="none"
+                stroke="#0F766E"
+                strokeWidth="3"
+                strokeLinecap="round"
+              />
+
+              {/* Data Points */}
+              <circle cx="30" cy="120" r="4" fill="#0F766E" />
+              <circle cx="110" cy="90" r="4" fill="#0F766E" />
+              <circle cx="190" cy="70" r="4" fill="#0F766E" />
+              <circle cx="270" cy="40" r="5" fill="#DC2626" />
+              <circle cx="340" cy="80" r="4" fill="#0F766E" />
+
+              {/* Month Labels */}
+              <text x="25" y="166" fontSize="9" fill="#64748B">Jan</text>
+              <text x="80" y="166" fontSize="9" fill="#64748B">Mar</text>
+              <text x="140" y="166" fontSize="9" fill="#64748B">May</text>
+              <text x="200" y="166" fontSize="9" fill="#64748B">Jul</text>
+              <text x="260" y="166" fontSize="9" fill="#64748B">Sep</text>
+              <text x="325" y="166" fontSize="9" fill="#64748B">Nov</text>
+            </svg>
+
+            <div style={styles.chartLegendRow}>
+              <div style={styles.legendItem}>
+                <span style={{ ...styles.legendDot, backgroundColor: '#0F766E' }}></span>
+                <span>Incident Trend Line</span>
+              </div>
+              <div style={styles.legendItem}>
+                <span style={{ ...styles.legendDot, backgroundColor: '#DC2626' }}></span>
+                <span>Peak Rainy Season</span>
+              </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* BOTTOM FOOTER BAR (WITHOUT ICONS) */}
-      <div style={styles.footerNav}>
-        <button
-          style={adminTab === 'database' ? styles.footerBtnActive : styles.footerBtnInactive}
-          onClick={() => { setAdminTab('database'); setSelectedReport(null); setSelectedUser(null); }}
-        >
-          Database
-        </button>
-        <button
-          style={adminTab === 'analytics' ? styles.footerBtnActive : styles.footerBtnInactive}
-          onClick={() => { setAdminTab('analytics'); setSelectedReport(null); setSelectedUser(null); }}
-        >
-          Analytics
-        </button>
-        <button
-          style={adminTab === 'users' ? styles.footerBtnActive : styles.footerBtnInactive}
-          onClick={() => { setAdminTab('users'); setSelectedReport(null); setSelectedUser(null); }}
-        >
-          User Moderation
-        </button>
-        <button
-          style={adminTab === 'verifications' ? styles.footerBtnActive : styles.footerBtnInactive}
-          onClick={() => { setAdminTab('verifications'); setSelectedReport(null); setSelectedUser(null); }}
-        >
-          Verification
-        </button>
-      </div>
+      {/* FULL SCREEN PHOTO INSPECTION MODAL */}
+      {inspectImage && (
+        <div style={styles.modalBackdrop} onClick={() => setInspectImage(null)}>
+          <div style={styles.modalContent} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.modalHeader}>
+              <span style={styles.modalTitle}>Photo Evidence Inspection</span>
+              <button style={styles.modalCloseBtn} onClick={() => setInspectImage(null)}>
+                Close X
+              </button>
+            </div>
+            <img src={inspectImage} alt="Full Size Evidence" style={styles.fullModalImg} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
 const styles = {
-  container: { maxWidth: '440px', margin: '0 auto', minHeight: '100vh', backgroundColor: '#F8FAFC', padding: '16px 16px 80px 16px', fontFamily: "'Inter', sans-serif", boxSizing: 'border-box', position: 'relative' },
-  navHeader: { display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' },
-  backBtn: { backgroundColor: 'transparent', border: 'none', color: '#0F766E', fontSize: '13px', fontWeight: '700', cursor: 'pointer' },
-  headerTitle: { fontSize: '16px', fontWeight: '800', color: '#0F172A', margin: 0 },
-  adminBadge: { fontSize: '9px', fontWeight: '800', backgroundColor: '#0F766E', color: '#FFFFFF', padding: '2px 6px', borderRadius: '4px' },
+  container: { maxWidth: '440px', margin: '0 auto', padding: '16px', fontFamily: "'Inter', sans-serif" },
+  navHeader: { display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '14px' },
+  backBtn: { backgroundColor: 'transparent', border: 'none', color: '#0F766E', fontSize: '14px', fontWeight: '700', cursor: 'pointer' },
+  headerTitle: { fontSize: '18px', fontWeight: '800', color: '#0F172A', margin: 0 },
   headerSub: { fontSize: '11px', color: '#64748B' },
-  viewSection: { marginBottom: '20px' },
-  sectionHeaderRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' },
-  sectionHeader: { fontSize: '12px', fontWeight: '800', color: '#1E293B', marginBottom: '10px' },
-  refreshBtn: { fontSize: '11px', fontWeight: '700', color: '#0F766E', backgroundColor: '#CCFBF1', border: 'none', padding: '5px 10px', borderRadius: '6px', cursor: 'pointer' },
-  emptyCard: { backgroundColor: '#FFFFFF', padding: '20px', borderRadius: '8px', border: '1px solid #E2E8F0', textAlign: 'center', color: '#64748B', fontSize: '12px' },
-  reportList: { display: 'flex', flexDirection: 'column', gap: '10px' },
-  fileCard: { backgroundColor: '#FFFFFF', border: '1px solid #CBD5E1', borderRadius: '10px', padding: '12px', display: 'flex', flexDirection: 'column', gap: '6px' },
-  fileCardHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
-  fileIdTag: { fontSize: '10px', fontWeight: '800', color: '#0F766E', backgroundColor: '#F0FDF4', padding: '2px 6px', borderRadius: '4px' },
-  statusBadge: { fontSize: '10px', fontWeight: '800', color: '#D97706', backgroundColor: '#FEF3C7', padding: '2px 8px', borderRadius: '10px' },
-  statusBadgeYellow: { fontSize: '10px', fontWeight: '800', color: '#D97706', backgroundColor: '#FEF3C7', padding: '2px 8px', borderRadius: '10px' },
-  fileTitle: { fontSize: '13px', fontWeight: '800', color: '#0F172A', margin: 0 },
-  fileMeta: { fontSize: '11px', color: '#475569' },
-  processFileBtn: { width: '100%', padding: '8px', backgroundColor: '#0F766E', color: '#FFFFFF', border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: '800', cursor: 'pointer', marginTop: '4px' },
-  filterBar: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '6px', marginBottom: '12px' },
-  filterBtnActive: { padding: '8px', backgroundColor: '#0F766E', color: '#FFFFFF', border: 'none', borderRadius: '6px', fontSize: '10px', fontWeight: '800', cursor: 'pointer' },
-  filterBtnInactive: { padding: '8px', backgroundColor: '#E2E8F0', color: '#475569', border: 'none', borderRadius: '6px', fontSize: '10px', fontWeight: '600', cursor: 'pointer' },
-  chartCard: { backgroundColor: '#FFFFFF', border: '1px solid #CBD5E1', borderRadius: '10px', padding: '14px', marginBottom: '14px' },
-  chartHeader: { display: 'flex', flexDirection: 'column', gap: '2px', marginBottom: '14px' },
-  chartTitle: { fontSize: '12px', fontWeight: '800', color: '#0F172A' },
-  chartSub: { fontSize: '10px', color: '#64748B' },
-  barGraphContainer: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', height: '120px', padding: '10px 0', borderBottom: '1px solid #CBD5E1', marginBottom: '12px' },
-  barCol: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', flex: 1 },
-  barValText: { fontSize: '9px', fontWeight: '800', color: '#0F766E' },
-  barTrack: { width: '16px', height: '80px', backgroundColor: '#F1F5F9', borderRadius: '4px', display: 'flex', alignItems: 'flex-end', overflow: 'hidden' },
-  barFill: { width: '100%', backgroundColor: '#0F766E', borderRadius: '4px' },
-  barLabelText: { fontSize: '9px', color: '#64748B', fontWeight: '700' },
-  summaryActionBtn: { width: '100%', padding: '9px', backgroundColor: '#0F766E', color: '#FFFFFF', border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: '800', cursor: 'pointer' },
-  summaryOutputCard: { marginTop: '10px', backgroundColor: '#F0FDF4', border: '1px solid #A7F3D0', padding: '10px', borderRadius: '6px', fontSize: '11px', color: '#065F46', lineHeight: '1.4' },
-  proofPreviewBox: { marginTop: '8px', padding: '8px', backgroundColor: '#F8FAFC', border: '1px solid #CBD5E1', borderRadius: '6px' },
-  proofImg: { width: '100%', height: '120px', objectFit: 'cover', borderRadius: '4px', marginTop: '4px' },
-  gpsRedirectBtn: { backgroundColor: '#CCFBF1', border: '1px solid #99F6E4', color: '#0F766E', padding: '6px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: '800', cursor: 'pointer', marginTop: '6px', display: 'inline-block' },
-  formSheetContainer: { display: 'flex', flexDirection: 'column', gap: '10px' },
-  formSheetHeaderCard: { backgroundColor: '#FFFFFF', borderTop: '6px solid #0F766E', border: '1px solid #CBD5E1', borderRadius: '8px', padding: '12px' },
-  formSheetTitleRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' },
-  formSheetSub: { fontSize: '9px', fontWeight: '800', color: '#0F766E', letterSpacing: '0.5px' },
-  formSheetTitle: { fontSize: '15px', fontWeight: '800', color: '#0F172A', margin: '2px 0 0 0' },
-  closeSheetBtn: { backgroundColor: '#F1F5F9', border: '1px solid #CBD5E1', padding: '4px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: '700', color: '#475569', cursor: 'pointer' },
-  formSectionCard: { backgroundColor: '#FFFFFF', border: '1px solid #CBD5E1', borderRadius: '8px', padding: '10px' },
-  formSectionLabel: { fontSize: '10px', fontWeight: '800', color: '#475569', display: 'block', marginBottom: '4px' },
-  formValueText: { fontSize: '11px', color: '#0F172A' },
-  formValueTextBold: { fontSize: '12px', fontWeight: '800', color: '#0F172A' },
-  formSubText: { fontSize: '10px', color: '#64748B', marginTop: '2px' },
-  formParagraphText: { fontSize: '11px', color: '#334155', margin: 0, lineHeight: '1.4' },
-  imageGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))', gap: '6px', marginTop: '6px' },
-  imageCard: { border: '1px solid #CBD5E1', borderRadius: '6px', overflow: 'hidden', height: '80px', backgroundColor: '#F8FAFC', display: 'flex', alignItems: 'center', justifyContent: 'center' },
-  evidenceImage: { width: '100%', height: '100%', objectFit: 'cover' },
-  fallbackPhotoBox: { padding: '6px', fontSize: '10px', color: '#64748B', textAlign: 'center' },
-  formActionCard: { backgroundColor: '#FFFFFF', border: '1px solid #CBD5E1', borderLeft: '5px solid #0F766E', borderRadius: '8px', padding: '10px', display: 'flex', flexDirection: 'column', gap: '8px' },
-  inputGroup: { display: 'flex', flexDirection: 'column', gap: '3px' },
-  inputLabelText: { fontSize: '9px', fontWeight: '800', color: '#475569' },
-  selectInput: { padding: '7px', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '11px' },
-  textArea: { padding: '7px', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '11px', fontFamily: 'inherit' },
-  actionButtonGroup: { display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '4px' },
-  btnApprove: { padding: '9px', backgroundColor: '#15803D', color: '#FFFFFF', border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: '800', cursor: 'pointer' },
-  btnReject: { padding: '9px', backgroundColor: '#DC2626', color: '#FFFFFF', border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: '800', cursor: 'pointer' },
-  btnDanger: { padding: '9px', backgroundColor: '#B91C1C', color: '#FFFFFF', border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: '800', cursor: 'pointer' },
-  btnDisabled: { padding: '9px', backgroundColor: '#94A3B8', color: '#FFFFFF', border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: '800', cursor: 'not-allowed' },
-  footerNav: { position: 'fixed', bottom: 0, left: '50%', transform: 'translateX(-50%)', width: '100%', maxWidth: '440px', backgroundColor: '#FFFFFF', borderTop: '1px solid #CBD5E1', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1px', padding: '6px 4px', boxSizing: 'border-box', zIndex: 100 },
-  footerBtnActive: { backgroundColor: '#0F766E', color: '#FFFFFF', border: 'none', padding: '10px 2px', borderRadius: '6px', fontSize: '11px', fontWeight: '800', cursor: 'pointer', textAlign: 'center' },
-  footerBtnInactive: { backgroundColor: '#F1F5F9', color: '#475569', border: 'none', padding: '10px 2px', borderRadius: '6px', fontSize: '11px', fontWeight: '700', cursor: 'pointer', textAlign: 'center' }
+  tabRow: { display: 'flex', gap: '4px', backgroundColor: '#E2E8F0', padding: '3px', borderRadius: '8px', marginBottom: '14px' },
+  tabActive: { flex: 1, padding: '8px', backgroundColor: '#0F766E', color: '#FFFFFF', border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: '800', cursor: 'pointer' },
+  tabInactive: { flex: 1, padding: '8px', backgroundColor: 'transparent', color: '#475569', border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: '700', cursor: 'pointer' },
+  sectionStack: { display: 'flex', flexDirection: 'column', gap: '10px' },
+  sectionTitle: { fontSize: '12px', fontWeight: '800', color: '#475569', textTransform: 'uppercase' },
+  emptyCard: { backgroundColor: '#FFFFFF', border: '1px solid #CBD5E1', padding: '16px', borderRadius: '8px', textAlign: 'center', color: '#64748B', fontSize: '11px' },
+  reportCard: { backgroundColor: '#FFFFFF', border: '1px solid #CBD5E1', borderRadius: '10px', padding: '12px' },
+  cardHeader: { display: 'flex', justifyContent: 'space-between', marginBottom: '6px' },
+  ticketBadge: { fontSize: '10px', fontWeight: '800', backgroundColor: '#CCFBF1', color: '#0F766E', padding: '2px 6px', borderRadius: '4px' },
+  severityTag: { fontSize: '10px', fontWeight: '800', backgroundColor: '#FEE2E2', color: '#991B1B', padding: '2px 6px', borderRadius: '4px' },
+  reportTitle: { fontSize: '13px', fontWeight: '800', color: '#0F172A', margin: '2px 0' },
+  reportMeta: { fontSize: '10px', color: '#64748B' },
+  reportDesc: { fontSize: '11px', color: '#334155', margin: '6px 0', lineHeight: '1.3' },
+  photoContainer: { marginTop: '8px', paddingTop: '8px', borderTop: '1px solid #F1F5F9' },
+  photoLabel: { fontSize: '9px', fontWeight: '800', color: '#0F766E', display: 'block', marginBottom: '4px' },
+  clickableThumbnail: { width: '80px', height: '60px', objectFit: 'cover', borderRadius: '6px', border: '2px solid #0F766E', cursor: 'pointer' },
+  actionBtnGroup: { display: 'flex', gap: '4px', marginTop: '10px' },
+  btnApprove: { flex: 1, padding: '6px', backgroundColor: '#DCFCE7', border: '1px solid #86EFAC', color: '#166534', borderRadius: '4px', fontSize: '10px', fontWeight: '800', cursor: 'pointer' },
+  btnDispatch: { flex: 1, padding: '6px', backgroundColor: '#FEF3C7', border: '1px solid #FDE047', color: '#854D0E', borderRadius: '4px', fontSize: '10px', fontWeight: '800', cursor: 'pointer' },
+  btnResolve: { flex: 1, padding: '6px', backgroundColor: '#CCFBF1', border: '1px solid #99F6E4', color: '#0F766E', borderRadius: '4px', fontSize: '10px', fontWeight: '800', cursor: 'pointer' },
+  btnDelete: { flex: 1, padding: '6px', backgroundColor: '#FEE2E2', border: '1px solid #FCA5A5', color: '#991B1B', borderRadius: '4px', fontSize: '10px', fontWeight: '800', cursor: 'pointer' },
+  subTabRow: { display: 'flex', gap: '6px', marginBottom: '10px' },
+  subTabActive: { padding: '6px 12px', backgroundColor: '#0F766E', color: '#FFFFFF', border: 'none', borderRadius: '6px', fontSize: '10px', fontWeight: '800', cursor: 'pointer' },
+  subTabInactive: { padding: '6px 12px', backgroundColor: '#E2E8F0', color: '#475569', border: 'none', borderRadius: '6px', fontSize: '10px', fontWeight: '600', cursor: 'pointer' },
+  purgeBtn: { width: '100%', padding: '8px', backgroundColor: '#991B1B', color: '#FFFFFF', border: 'none', borderRadius: '6px', fontSize: '10px', fontWeight: '800', cursor: 'pointer', marginBottom: '10px' },
+  compactUserList: { display: 'flex', flexDirection: 'column', gap: '6px' },
+  compactUserRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#FFFFFF', border: '1px solid #CBD5E1', padding: '8px 10px', borderRadius: '6px' },
+  userInfoCol: { display: 'flex', flexDirection: 'column' },
+  userNameText: { fontSize: '12px', fontWeight: '800', color: '#0F172A' },
+  userDeviceText: { fontSize: '9px', color: '#64748B' },
+  userActionsCol: { display: 'flex', gap: '4px', alignItems: 'center' },
+  btnMiniVerify: { padding: '4px 8px', backgroundColor: '#166534', color: '#FFFFFF', border: 'none', borderRadius: '4px', fontSize: '10px', fontWeight: '800', cursor: 'pointer' },
+  btnMiniDelete: { padding: '4px 8px', backgroundColor: '#991B1B', color: '#FFFFFF', border: 'none', borderRadius: '4px', fontSize: '10px', fontWeight: '800', cursor: 'pointer' },
+  verifiedPill: { fontSize: '9px', fontWeight: '800', color: '#166534', backgroundColor: '#DCFCE7', padding: '2px 6px', borderRadius: '4px' },
+  deletedPill: { fontSize: '9px', fontWeight: '800', color: '#991B1B', backgroundColor: '#FEE2E2', padding: '2px 6px', borderRadius: '4px' },
+  chartCard: { backgroundColor: '#FFFFFF', border: '1px solid #CBD5E1', borderRadius: '10px', padding: '12px' },
+  svgChart: { width: '100%', height: 'auto' },
+  chartLegendRow: { display: 'flex', gap: '16px', justifyContent: 'center', marginTop: '10px', fontSize: '10px', color: '#475569' },
+  legendItem: { display: 'flex', alignItems: 'center', gap: '4px' },
+  legendDot: { width: '8px', height: '8px', borderRadius: '50%' },
+  modalBackdrop: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.8)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '16px' },
+  modalContent: { backgroundColor: '#FFFFFF', borderRadius: '12px', padding: '12px', maxWidth: '380px', width: '100%' },
+  modalHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' },
+  modalTitle: { fontSize: '12px', fontWeight: '800', color: '#0F172A' },
+  modalCloseBtn: { backgroundColor: '#F1F5F9', border: 'none', padding: '4px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: '800', cursor: 'pointer', color: '#475569' },
+  fullModalImg: { width: '100%', height: 'auto', borderRadius: '8px', border: '1px solid #CBD5E1' }
 };
