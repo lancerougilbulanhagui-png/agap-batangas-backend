@@ -2,14 +2,10 @@ import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 
 export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userRole = 'CITIZEN' }) {
-  // 1. Hazard Type: Starts blank (no default value)
   const [selectedCategory, setSelectedCategory] = useState('');
   const [customCategory, setCustomCategory] = useState('');
-
-  // 2. Severity Level: Starts in NO active state
   const [severityLevel, setSeverityLevel] = useState('');
 
-  // 3. Location & Tap-to-Pin Coordinates (Default: Batangas City)
   const [locationName, setLocationName] = useState('');
   const [latitude, setLatitude] = useState(13.7565);
   const [longitude, setLongitude] = useState(121.0583);
@@ -19,7 +15,6 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userRole =
   const [photoAttached, setPhotoAttached] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Map Container Ref for Leaflet
   const mapContainerRef = useRef(null);
   const mapInstanceRef = useRef(null);
   const markerInstanceRef = useRef(null);
@@ -33,7 +28,6 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userRole =
     { id: 'OTHER', label: 'Other / Custom Hazard', color: '#475569' }
   ];
 
-  // Initialize Interactive Leaflet Click-to-Pin Map
   useEffect(() => {
     const loadLeafletScript = () => {
       if (!document.getElementById('leaflet-css')) {
@@ -69,17 +63,15 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userRole =
       mapInstanceRef.current = map;
       markerInstanceRef.current = marker;
 
-      // Tap or Click Anywhere on Map to Move Pin
       map.on('click', (e) => {
         const lat = parseFloat(e.latlng.lat.toFixed(5));
         const lng = parseFloat(e.latlng.lng.toFixed(5));
-
         setLatitude(lat);
         setLongitude(lng);
         marker.setLatLng([lat, lng]);
 
         if (!locationName) {
-          setLocationName(`Pinned Location (${lat} N, ${lng} E)`);
+          setLocationName(`Pinned Spot (${lat} N, ${lng} E)`);
         }
       });
 
@@ -87,13 +79,8 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userRole =
         const position = marker.getLatLng();
         const lat = parseFloat(position.lat.toFixed(5));
         const lng = parseFloat(position.lng.toFixed(5));
-
         setLatitude(lat);
         setLongitude(lng);
-
-        if (!locationName) {
-          setLocationName(`Pinned Location (${lat} N, ${lng} E)`);
-        }
       });
     };
 
@@ -118,10 +105,9 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userRole =
       (position) => {
         const lat = parseFloat(position.coords.latitude.toFixed(5));
         const lng = parseFloat(position.coords.longitude.toFixed(5));
-
         setLatitude(lat);
         setLongitude(lng);
-        setLocationName(`Near ${lat} N, ${lng} E (Batangas City Sector)`);
+        setLocationName(`Near ${lat} N, ${lng} E`);
         setIsGpsLoading(false);
 
         if (mapInstanceRef.current && markerInstanceRef.current) {
@@ -131,7 +117,7 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userRole =
       },
       () => {
         setIsGpsLoading(false);
-        alert('Could not fetch exact GPS. Tap anywhere on the map below to drop the pin.');
+        alert('Could not fetch GPS location. Tap anywhere on the map to place pin.');
       },
       { enableHighAccuracy: true, timeout: 10000 }
     );
@@ -154,7 +140,7 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userRole =
     const finalHazardType = selectedCategory === 'OTHER' ? customCategory : selectedCategory;
 
     if (!finalHazardType || !finalHazardType.trim()) {
-      alert('Please select or type a Hazard Type before submitting.');
+      alert('Please select or type a Hazard Type.');
       return;
     }
 
@@ -171,21 +157,11 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userRole =
     setIsSubmitting(true);
 
     try {
-      // 1. Calculate dynamic ticket number based on current count in Supabase
-      const { count } = await supabase
-        .from('reports')
-        .select('*', { count: 'exact', head: true });
-
-      const nextSequence = (count || 0) + 1;
-      const formattedSeq = String(nextSequence).padStart(4, '0');
-      const ticketNo = `#AGAP-2026-${formattedSeq}`;
-
       const localDeviceId = localStorage.getItem('agap_device_id') || 'GUEST-DEV';
+      const randomSeq = Math.floor(1000 + Math.random() * 9000);
+      const ticketNo = `#AGAP-2026-${randomSeq}`;
 
-      // 2. Insert report into Supabase database
       const payload = {
-        id: ticketNo,
-        device_id: localDeviceId,
         category: finalHazardType,
         hazard_type: finalHazardType,
         severity: severityLevel,
@@ -193,20 +169,25 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userRole =
         coordinates: `${latitude}, ${longitude}`,
         description: description,
         status: 'PENDING',
-        proof_photos: photoAttached ? JSON.stringify([photoAttached]) : null,
-        created_at: new Date().toISOString()
+        device_id: localDeviceId,
+        proof_photos: photoAttached ? JSON.stringify([photoAttached]) : null
       };
 
       const { error } = await supabase.from('reports').insert([payload]);
-      if (error) throw error;
 
-      alert(`Emergency Hazard Report Successfully Transmitted!\nTicket Reference: ${ticketNo}\nStatus: PENDING ADMIN REVIEW`);
+      if (error) {
+        console.error('Supabase Error:', error);
+        alert(`[DATABASE ERROR] ${error.message}\n(Code: ${error.code})`);
+        return;
+      }
+
+      alert(`[SUCCESS] Emergency Report Transmitted!\nTicket Ref: ${ticketNo}\nStatus: PENDING ADMIN REVIEW`);
 
       if (typeof onSubmitSuccess === 'function') {
         onSubmitSuccess();
       }
     } catch (err) {
-      alert(`[TRANSMISSION ERROR] Could not send report: ${err.message}`);
+      alert(`[SYSTEM ERROR] ${err.message}`);
     } finally {
       setIsSubmitting(false);
     }
@@ -224,14 +205,7 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userRole =
         </div>
       </div>
 
-      {userRole === 'GUEST' && (
-        <div style={styles.guestNotice}>
-          Notice: Guest Mode report will undergo automated verification before dispatch.
-        </div>
-      )}
-
       <form onSubmit={handleSubmit} style={styles.formCard}>
-
         {/* Step 1: Hazard Type */}
         <div style={styles.formSection}>
           <label style={styles.sectionLabel}>1. SELECT OR TYPE HAZARD TYPE</label>
@@ -253,7 +227,7 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userRole =
             <input
               type="text"
               style={{ ...styles.textInput, marginTop: '8px' }}
-              placeholder="Type specific custom hazard (e.g. Chemical Spill, Fallen Tree)..."
+              placeholder="Type specific custom hazard..."
               value={customCategory}
               onChange={(e) => setCustomCategory(e.target.value)}
               required
@@ -269,7 +243,7 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userRole =
               { id: 'LOW', label: 'Low', color: '#10B981' },
               { id: 'MODERATE', label: 'Moderate', color: '#F59E0B' },
               { id: 'SEVERE', label: 'Severe', color: '#EA580C' },
-              { id: 'CRITICAL', label: 'Critical / Crisis', color: '#DC2626' }
+              { id: 'CRITICAL', label: 'Critical', color: '#DC2626' }
             ].map((sev) => (
               <button
                 key={sev.id}
@@ -281,12 +255,9 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userRole =
               </button>
             ))}
           </div>
-          {!severityLevel && (
-            <span style={styles.unselectedWarning}>Select urgency level to proceed</span>
-          )}
         </div>
 
-        {/* Step 3: Map Location */}
+        {/* Step 3: Location Map */}
         <div style={styles.formSection}>
           <div style={styles.labelRow}>
             <label style={styles.sectionLabel}>3. HAZARD LOCATION (TAP MAP TO PIN)</label>
@@ -296,10 +267,7 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userRole =
               onClick={handleGetDeviceLocation}
               disabled={isGpsLoading}
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#0F766E" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/>
-              </svg>
-              <span>{isGpsLoading ? 'Locating...' : 'My Location GPS'}</span>
+              <span>{isGpsLoading ? 'Locating...' : 'GPS Position'}</span>
             </button>
           </div>
 
@@ -308,20 +276,12 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userRole =
             style={styles.textInput}
             value={locationName}
             onChange={(e) => setLocationName(e.target.value)}
-            placeholder="Tap map below or type street name / landmark..."
+            placeholder="Tap map below or type address / landmark..."
             required
           />
 
-          <div style={styles.mapInstructionBox}>
-            Tap anywhere on the map below to instantly place the hazard pin:
-          </div>
-
           <div style={styles.interactiveMapFrame}>
-            <div ref={mapContainerRef} style={{ width: '100%', height: '220px' }}></div>
-          </div>
-
-          <div style={styles.coordSubText}>
-            Detected Coordinates: {latitude} N, {longitude} E
+            <div ref={mapContainerRef} style={{ width: '100%', height: '200px' }}></div>
           </div>
         </div>
 
@@ -329,12 +289,8 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userRole =
         <div style={styles.formSection}>
           <label style={styles.sectionLabel}>4. ATTACH PHOTO EVIDENCE</label>
           <label style={styles.photoDropzone}>
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#0F766E" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
-              <circle cx="12" cy="13" r="4"/>
-            </svg>
             <div style={styles.photoDropText}>
-              {photoAttached ? 'Photo Evidence Attached' : 'Tap to Upload Photo Evidence'}
+              {photoAttached ? '✓ Photo Evidence Attached' : '+ Tap to Upload Photo'}
             </div>
             <input type="file" accept="image/*" onChange={handlePhotoUpload} style={{ display: 'none' }} />
           </label>
@@ -346,7 +302,7 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userRole =
           <textarea
             style={styles.textArea}
             rows="3"
-            placeholder="Describe current situation, road blockage, or injured persons needing rescue..."
+            placeholder="Describe current situation..."
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             required
@@ -371,27 +327,23 @@ const styles = {
   backBtn: { backgroundColor: 'transparent', border: 'none', color: '#0F766E', fontSize: '14px', fontWeight: '700', cursor: 'pointer' },
   headerTitle: { fontSize: '18px', fontWeight: '800', color: '#0F172A', margin: 0 },
   headerSub: { fontSize: '11px', color: '#64748B' },
-  guestNotice: { backgroundColor: '#FFF7ED', border: '1px solid #FFEDD5', color: '#C2410C', padding: '10px 12px', borderRadius: '10px', fontSize: '11px', marginBottom: '14px', lineHeight: '1.4' },
-  formCard: { backgroundColor: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: '16px', padding: '16px', boxShadow: '0 2px 6px rgba(0,0,0,0.02)' },
+  formCard: { backgroundColor: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: '16px', padding: '16px' },
   formSection: { marginBottom: '16px' },
-  sectionLabel: { fontSize: '10px', fontWeight: '800', color: '#64748B', display: 'block', marginBottom: '6px', letterSpacing: '0.5px' },
+  sectionLabel: { fontSize: '10px', fontWeight: '800', color: '#64748B', display: 'block', marginBottom: '6px' },
   categoryGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' },
-  catBtnActive: { display: 'flex', alignItems: 'center', gap: '8px', padding: '10px', backgroundColor: '#F0FDF4', border: '2px solid #0F766E', borderRadius: '10px', fontSize: '11px', fontWeight: '800', color: '#0F172A', cursor: 'pointer' },
-  catBtnInactive: { display: 'flex', alignItems: 'center', gap: '8px', padding: '10px', backgroundColor: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: '10px', fontSize: '11px', fontWeight: '600', color: '#475569', cursor: 'pointer' },
-  catDot: { width: '8px', height: '8px', borderRadius: '50%', flexShrink: 0 },
+  catBtnActive: { display: 'flex', alignItems: 'center', gap: '8px', padding: '10px', backgroundColor: '#F0FDF4', border: '2px solid #0F766E', borderRadius: '10px', fontSize: '11px', fontWeight: '800', cursor: 'pointer' },
+  catBtnInactive: { display: 'flex', alignItems: 'center', gap: '8px', padding: '10px', backgroundColor: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: '10px', fontSize: '11px', fontWeight: '600', cursor: 'pointer' },
+  catDot: { width: '8px', height: '8px', borderRadius: '50%' },
   severityBar: { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '4px' },
-  sevActive: { padding: '8px 4px', color: '#FFFFFF', border: 'none', borderRadius: '8px', fontSize: '10px', fontWeight: '800', cursor: 'pointer', textAlign: 'center' },
-  sevInactive: { padding: '8px 4px', backgroundColor: '#F1F5F9', color: '#64748B', border: 'none', borderRadius: '8px', fontSize: '10px', fontWeight: '600', cursor: 'pointer', textAlign: 'center' },
-  unselectedWarning: { fontSize: '9px', color: '#DC2626', marginTop: '4px', display: 'block' },
+  sevActive: { padding: '8px 4px', color: '#FFFFFF', border: 'none', borderRadius: '8px', fontSize: '10px', fontWeight: '800', cursor: 'pointer' },
+  sevInactive: { padding: '8px 4px', backgroundColor: '#F1F5F9', color: '#64748B', border: 'none', borderRadius: '8px', fontSize: '10px', fontWeight: '600', cursor: 'pointer' },
   labelRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' },
-  gpsTriggerBtn: { display: 'flex', alignItems: 'center', gap: '4px', backgroundColor: '#CCFBF1', border: '1px solid #99F6E4', color: '#0F766E', padding: '3px 8px', borderRadius: '6px', fontSize: '10px', fontWeight: '800', cursor: 'pointer' },
-  textInput: { width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '12px', outline: 'none', boxSizing: 'border-box' },
-  mapInstructionBox: { fontSize: '10px', color: '#0F766E', fontWeight: '700', marginTop: '8px', marginBottom: '4px' },
+  gpsTriggerBtn: { backgroundColor: '#CCFBF1', border: '1px solid #99F6E4', color: '#0F766E', padding: '3px 8px', borderRadius: '6px', fontSize: '10px', fontWeight: '800', cursor: 'pointer' },
+  textInput: { width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '12px', boxSizing: 'border-box', marginBottom: '8px' },
   interactiveMapFrame: { borderRadius: '10px', overflow: 'hidden', border: '2px solid #0F766E' },
-  coordSubText: { fontSize: '10px', color: '#64748B', marginTop: '4px', fontWeight: '600' },
-  photoDropzone: { border: '2px dashed #0F766E', backgroundColor: '#F0FDF4', padding: '14px', borderRadius: '12px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', cursor: 'pointer' },
+  photoDropzone: { border: '2px dashed #0F766E', backgroundColor: '#F0FDF4', padding: '14px', borderRadius: '12px', display: 'flex', justifyContent: 'center', cursor: 'pointer' },
   photoDropText: { fontSize: '11px', fontWeight: '800', color: '#0F766E' },
-  textArea: { width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '12px', outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit' },
+  textArea: { width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '12px', boxSizing: 'border-box', fontFamily: 'inherit' },
   submitBtn: { width: '100%', padding: '12px', backgroundColor: '#0F766E', color: '#FFFFFF', border: 'none', borderRadius: '10px', fontSize: '13px', fontWeight: '800', cursor: 'pointer', marginTop: '8px' },
   submitBtnDisabled: { width: '100%', padding: '12px', backgroundColor: '#94A3B8', color: '#FFFFFF', border: 'none', borderRadius: '10px', fontSize: '13px', fontWeight: '800', cursor: 'not-allowed', marginTop: '8px' }
 };
