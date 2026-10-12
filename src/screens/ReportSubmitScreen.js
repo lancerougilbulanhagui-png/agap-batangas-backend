@@ -1,29 +1,112 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 
 export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userRole = 'CITIZEN' }) {
-  const [selectedCategory, setSelectedCategory] = useState('FLOODING');
-  const [severityLevel, setSeverityLevel] = useState('SEVERE');
+  // 1. Hazard Type: Starts blank (no default pre-selected value)
+  const [selectedCategory, setSelectedCategory] = useState('');
+  const [customCategory, setCustomCategory] = useState('');
 
-  // Location and GPS state
-  const [locationName, setLocationName] = useState('Brgy. Alangilan, Batangas City');
-  const [latitude, setLatitude] = useState(13.7850);
-  const [longitude, setLongitude] = useState(121.0740);
+  // 2. Severity Level: Starts in NO active state
+  const [severityLevel, setSeverityLevel] = useState('');
+
+  // 3. Location & Tap-to-Pin Coordinates (Default: Batangas City)
+  const [locationName, setLocationName] = useState('');
+  const [latitude, setLatitude] = useState(13.7565);
+  const [longitude, setLongitude] = useState(121.0583);
   const [isGpsLoading, setIsGpsLoading] = useState(false);
-  const [showMapPicker, setShowMapPicker] = useState(false);
 
   const [description, setDescription] = useState('');
   const [photoAttached, setPhotoAttached] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Map Container Ref for Leaflet
+  const mapContainerRef = useRef(null);
+  const mapInstanceRef = useRef(null);
+  const markerInstanceRef = useRef(null);
 
   const categories = [
     { id: 'FLOODING', label: 'River / Flash Flood', color: '#0369A1' },
     { id: 'ELECTRICAL', label: 'Fallen Wire / Spark', color: '#D97706' },
     { id: 'OBSTRUCTION', label: 'Road Obstruction', color: '#15803D' },
     { id: 'FIRE', label: 'Fire / Explosion', color: '#DC2626' },
-    { id: 'MEDICAL', label: 'Medical Emergency', color: '#B91C1C' }
+    { id: 'MEDICAL', label: 'Medical Emergency', color: '#B91C1C' },
+    { id: 'OTHER', label: 'Other / Custom Hazard', color: '#475569' }
   ];
 
-  // 1. Fetch user's device GPS coordinates as a starting point
+  // Initialize Interactive Leaflet Click-to-Pin Map
+  useEffect(() => {
+    const loadLeafletScript = () => {
+      if (!document.getElementById('leaflet-css')) {
+        const link = document.createElement('link');
+        link.id = 'leaflet-css';
+        link.rel = 'stylesheet';
+        link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+        document.head.appendChild(link);
+      }
+
+      if (!window.L) {
+        const script = document.createElement('script');
+        script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+        script.onload = initMap;
+        document.head.appendChild(script);
+      } else {
+        initMap();
+      }
+    };
+
+    const initMap = () => {
+      if (!mapContainerRef.current || mapInstanceRef.current) return;
+
+      const L = window.L;
+      const map = L.map(mapContainerRef.current).setView([latitude, longitude], 14);
+
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap'
+      }).addTo(map);
+
+      const marker = L.marker([latitude, longitude], { draggable: true }).addTo(map);
+
+      mapInstanceRef.current = map;
+      markerInstanceRef.current = marker;
+
+      // Tap or Click Anywhere on Map to Move Pin
+      map.on('click', (e) => {
+        const lat = parseFloat(e.latlng.lat.toFixed(5));
+        const lng = parseFloat(e.latlng.lng.toFixed(5));
+
+        setLatitude(lat);
+        setLongitude(lng);
+        marker.setLatLng([lat, lng]);
+
+        if (!locationName) {
+          setLocationName(`Pinned Spot (${lat} N, ${lng} E)`);
+        }
+      });
+
+      // Drag Marker to Adjust Exact Position
+      marker.on('dragend', (e) => {
+        const lat = parseFloat(e.target.getLatLng().lat.toFixed(5));
+        const lng = parseFloat(e.target.getLatLng().lng.toFixed(5));
+
+        setLatitude(lat);
+        setLongitude(lng);
+
+        if (!locationName) {
+          setLocationName(`Pinned Spot (${lat} N, ${lng} E)`);
+        }
+      });
+    };
+
+    loadLeafletScript();
+
+    return () => {
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.remove();
+        mapInstanceRef.current = null;
+      }
+    };
+  }, []);
+
+  // Update Map Pin if User Hits "Locate My Position" GPS Button
   const handleGetDeviceLocation = () => {
     if (!navigator.geolocation) {
       alert('Geolocation is not supported by your browser.');
@@ -33,17 +116,22 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userRole =
     setIsGpsLoading(true);
     navigator.geolocation.getCurrentPosition(
       (position) => {
-        const lat = parseFloat(position.coords.latitude.toFixed(4));
-        const lng = parseFloat(position.coords.longitude.toFixed(4));
+        const lat = parseFloat(position.coords.latitude.toFixed(5));
+        const lng = parseFloat(position.coords.longitude.toFixed(5));
+
         setLatitude(lat);
         setLongitude(lng);
-        setLocationName(`Near ${lat}° N, ${lng}° E (Batangas City Sector)`);
+        setLocationName(`Near ${lat} N, ${lng} E (Batangas City Sector)`);
         setIsGpsLoading(false);
-        setShowMapPicker(true);
+
+        if (mapInstanceRef.current && markerInstanceRef.current) {
+          mapInstanceRef.current.setView([lat, lng], 16);
+          markerInstanceRef.current.setLatLng([lat, lng]);
+        }
       },
       () => {
         setIsGpsLoading(false);
-        alert('Could not fetch exact GPS location. Please check location permissions.');
+        alert('Could not fetch exact GPS. You can tap anywhere on the map below to drop the pin.');
       },
       { enableHighAccuracy: true, timeout: 10000 }
     );
@@ -57,6 +145,25 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userRole =
 
   const handleSubmit = (e) => {
     e.preventDefault();
+
+    const finalHazardType = selectedCategory === 'OTHER' ? customCategory : selectedCategory;
+
+    // Validation Checks
+    if (!finalHazardType || !finalHazardType.trim()) {
+      alert('Please select or type a Hazard Type before submitting.');
+      return;
+    }
+
+    if (!severityLevel) {
+      alert('Please select a Severity Urgency Level.');
+      return;
+    }
+
+    if (!locationName || !locationName.trim()) {
+      alert('Please enter a location name or tap a spot on the map.');
+      return;
+    }
+
     setIsSubmitting(true);
 
     setTimeout(() => {
@@ -67,8 +174,6 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userRole =
       }
     }, 1000);
   };
-
-  const mapEmbedUrl = `https://maps.google.com/maps?q=${latitude},${longitude}&t=m&z=16&ie=UTF8&iwloc=&output=embed`;
 
   return (
     <div style={styles.container}>
@@ -89,9 +194,10 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userRole =
       )}
 
       <form onSubmit={handleSubmit} style={styles.formCard}>
-        {/* Step 1: Category */}
+
+        {/* Step 1: Hazard Type Selection / Custom Input */}
         <div style={styles.formSection}>
-          <label style={styles.sectionLabel}>1. SELECT HAZARD TYPE</label>
+          <label style={styles.sectionLabel}>1. SELECT OR TYPE HAZARD TYPE</label>
           <div style={styles.categoryGrid}>
             {categories.map((cat) => (
               <button
@@ -105,9 +211,20 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userRole =
               </button>
             ))}
           </div>
+
+          {selectedCategory === 'OTHER' && (
+            <input
+              type="text"
+              style={{ ...styles.textInput, marginTop: '8px' }}
+              placeholder="Type specific custom hazard (e.g. Chemical Spill, Fallen Tree)..."
+              value={customCategory}
+              onChange={(e) => setCustomCategory(e.target.value)}
+              required
+            />
+          )}
         </div>
 
-        {/* Step 2: Severity */}
+        {/* Step 2: Severity Urgency Level (No default state) */}
         <div style={styles.formSection}>
           <label style={styles.sectionLabel}>2. SEVERITY URGENCY LEVEL</label>
           <div style={styles.severityBar}>
@@ -127,12 +244,15 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userRole =
               </button>
             ))}
           </div>
+          {!severityLevel && (
+            <span style={styles.unselectedWarning}>Select urgency level to proceed</span>
+          )}
         </div>
 
-        {/* Step 3: Location Details & Adjustable Pin */}
+        {/* Step 3: Interactive Tap-to-Pin Location Map */}
         <div style={styles.formSection}>
           <div style={styles.labelRow}>
-            <label style={styles.sectionLabel}>3. EXACT HAZARD LOCATION</label>
+            <label style={styles.sectionLabel}>3. HAZARD LOCATION (TAP MAP TO PIN)</label>
             <button
               type="button"
               style={styles.gpsTriggerBtn}
@@ -142,7 +262,7 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userRole =
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#0F766E" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/>
               </svg>
-              <span>{isGpsLoading ? 'Detecting GPS...' : 'Locate My Position'}</span>
+              <span>{isGpsLoading ? 'Locating...' : 'My Location GPS'}</span>
             </button>
           </div>
 
@@ -151,65 +271,21 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userRole =
             style={styles.textInput}
             value={locationName}
             onChange={(e) => setLocationName(e.target.value)}
-            placeholder="Type landmark, barangay, or specific street address..."
+            placeholder="Tap map below or type street name / landmark..."
             required
           />
 
-          <div style={styles.coordSubText}>
-            Pinned Coordinates: {latitude}° N, {longitude}° E
+          <div style={styles.mapInstructionBox}>
+            Tap anywhere on the map below to instantly place the hazard pin:
           </div>
 
-          {/* Map Location Preview & Fine-Tuning */}
-          <div style={styles.mapPinBox}>
-            <div style={styles.mapPinHeader}>
-              <span style={styles.mapPinTitle}>Adjust Hazard Location Pin</span>
-              <button
-                type="button"
-                style={styles.mapToggleBtn}
-                onClick={() => setShowMapPicker(!showMapPicker)}
-              >
-                {showMapPicker ? 'Hide Map' : 'Show Map'}
-              </button>
-            </div>
+          {/* Interactive Leaflet Map Container */}
+          <div style={styles.interactiveMapFrame}>
+            <div ref={mapContainerRef} style={{ width: '100%', height: '220px' }}></div>
+          </div>
 
-            {showMapPicker && (
-              <div style={styles.mapPickerContainer}>
-                <iframe
-                  title="Hazard Location Map"
-                  width="100%"
-                  height="160"
-                  frameBorder="0"
-                  scrolling="no"
-                  src={mapEmbedUrl}
-                  style={styles.mapIframe}
-                ></iframe>
-                <div style={styles.mapInstructionText}>
-                  Note: If the hazard is located further down the road, adjust the coordinates or address above to pinpoint the exact spot.
-                </div>
-                <div style={styles.coordAdjustRow}>
-                  <div style={{ flex: 1 }}>
-                    <label style={styles.microLabel}>LATITUDE</label>
-                    <input
-                      type="number"
-                      step="0.0001"
-                      style={styles.coordInput}
-                      value={latitude}
-                      onChange={(e) => setLatitude(parseFloat(e.target.value) || 0)}
-                    />
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <label style={styles.microLabel}>LONGITUDE</label>
-                    <input
-                      type="number"
-                      step="0.0001"
-                      style={styles.coordInput}
-                      value={longitude}
-                      onChange={(e) => setLongitude(parseFloat(e.target.value) || 0)}
-                    />
-                  </div>
-                </div>
-              </div>
-            )}
+          <div style={styles.coordSubText}>
+            Detected Coordinates: {latitude} N, {longitude} E
           </div>
         </div>
 
@@ -270,20 +346,13 @@ const styles = {
   severityBar: { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '4px' },
   sevActive: { padding: '8px 4px', color: '#FFFFFF', border: 'none', borderRadius: '8px', fontSize: '10px', fontWeight: '800', cursor: 'pointer', textAlign: 'center' },
   sevInactive: { padding: '8px 4px', backgroundColor: '#F1F5F9', color: '#64748B', border: 'none', borderRadius: '8px', fontSize: '10px', fontWeight: '600', cursor: 'pointer', textAlign: 'center' },
+  unselectedWarning: { fontSize: '9px', color: '#DC2626', marginTop: '4px', display: 'block' },
   labelRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' },
   gpsTriggerBtn: { display: 'flex', alignItems: 'center', gap: '4px', backgroundColor: '#CCFBF1', border: '1px solid #99F6E4', color: '#0F766E', padding: '3px 8px', borderRadius: '6px', fontSize: '10px', fontWeight: '800', cursor: 'pointer' },
   textInput: { width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '12px', outline: 'none', boxSizing: 'border-box' },
+  mapInstructionBox: { fontSize: '10px', color: '#0F766E', fontWeight: '700', marginTop: '8px', marginBottom: '4px' },
+  interactiveMapFrame: { borderRadius: '10px', overflow: 'hidden', border: '2px solid #0F766E' },
   coordSubText: { fontSize: '10px', color: '#64748B', marginTop: '4px', fontWeight: '600' },
-  mapPinBox: { marginTop: '8px', backgroundColor: '#F8FAFC', border: '1px solid #CBD5E1', borderRadius: '8px', padding: '8px' },
-  mapPinHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
-  mapPinTitle: { fontSize: '10px', fontWeight: '800', color: '#334155' },
-  mapToggleBtn: { backgroundColor: '#F1F5F9', border: '1px solid #CBD5E1', color: '#475569', padding: '2px 6px', borderRadius: '4px', fontSize: '9px', fontWeight: '700', cursor: 'pointer' },
-  mapPickerContainer: { marginTop: '8px' },
-  mapIframe: { borderRadius: '6px', border: '1px solid #CBD5E1', display: 'block' },
-  mapInstructionText: { fontSize: '9px', color: '#64748B', marginTop: '4px', lineHeight: '1.3' },
-  coordAdjustRow: { display: 'flex', gap: '8px', marginTop: '6px' },
-  microLabel: { fontSize: '8px', fontWeight: '800', color: '#64748B', display: 'block', marginBottom: '2px' },
-  coordInput: { width: '100%', padding: '4px 6px', borderRadius: '4px', border: '1px solid #CBD5E1', fontSize: '10px', boxSizing: 'border-box' },
   photoDropzone: { border: '2px dashed #0F766E', backgroundColor: '#F0FDF4', padding: '14px', borderRadius: '12px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', cursor: 'pointer' },
   photoDropText: { fontSize: '11px', fontWeight: '800', color: '#0F766E' },
   textArea: { width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '12px', outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit' },
