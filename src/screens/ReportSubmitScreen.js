@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { supabase } from '../supabaseClient';
 
 export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userRole = 'CITIZEN' }) {
-  // 1. Hazard Type: Starts blank (no default pre-selected value)
+  // 1. Hazard Type: Starts blank (no default value)
   const [selectedCategory, setSelectedCategory] = useState('');
   const [customCategory, setCustomCategory] = useState('');
 
@@ -15,7 +16,7 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userRole =
   const [isGpsLoading, setIsGpsLoading] = useState(false);
 
   const [description, setDescription] = useState('');
-  const [photoAttached, setPhotoAttached] = useState(false);
+  const [photoAttached, setPhotoAttached] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Map Container Ref for Leaflet
@@ -78,20 +79,20 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userRole =
         marker.setLatLng([lat, lng]);
 
         if (!locationName) {
-          setLocationName(`Pinned Spot (${lat} N, ${lng} E)`);
+          setLocationName(`Pinned Location (${lat} N, ${lng} E)`);
         }
       });
 
-      // Drag Marker to Adjust Exact Position
-      marker.on('dragend', (e) => {
-        const lat = parseFloat(e.target.getLatLng().lat.toFixed(5));
-        const lng = parseFloat(e.target.getLatLng().lng.toFixed(5));
+      marker.on('dragend', () => {
+        const position = marker.getLatLng();
+        const lat = parseFloat(position.lat.toFixed(5));
+        const lng = parseFloat(position.lng.toFixed(5));
 
         setLatitude(lat);
         setLongitude(lng);
 
         if (!locationName) {
-          setLocationName(`Pinned Spot (${lat} N, ${lng} E)`);
+          setLocationName(`Pinned Location (${lat} N, ${lng} E)`);
         }
       });
     };
@@ -106,7 +107,6 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userRole =
     };
   }, []);
 
-  // Update Map Pin if User Hits "Locate My Position" GPS Button
   const handleGetDeviceLocation = () => {
     if (!navigator.geolocation) {
       alert('Geolocation is not supported by your browser.');
@@ -131,24 +131,28 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userRole =
       },
       () => {
         setIsGpsLoading(false);
-        alert('Could not fetch exact GPS. You can tap anywhere on the map below to drop the pin.');
+        alert('Could not fetch exact GPS. Tap anywhere on the map below to drop the pin.');
       },
       { enableHighAccuracy: true, timeout: 10000 }
     );
   };
 
   const handlePhotoUpload = (e) => {
-    if (e.target.files && e.target.files.length > 0) {
-      setPhotoAttached(true);
-    }
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = () => {
+      setPhotoAttached(reader.result);
+    };
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
 
     const finalHazardType = selectedCategory === 'OTHER' ? customCategory : selectedCategory;
 
-    // Validation Checks
     if (!finalHazardType || !finalHazardType.trim()) {
       alert('Please select or type a Hazard Type before submitting.');
       return;
@@ -166,13 +170,46 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userRole =
 
     setIsSubmitting(true);
 
-    setTimeout(() => {
-      setIsSubmitting(false);
-      alert('Emergency Hazard Report Successfully Submitted!\nTicket Reference: #AGAP-2026-0812');
+    try {
+      // 1. Calculate dynamic ticket number based on current count in Supabase
+      const { count } = await supabase
+        .from('reports')
+        .select('*', { count: 'exact', head: true });
+
+      const nextSequence = (count || 0) + 1;
+      const formattedSeq = String(nextSequence).padStart(4, '0');
+      const ticketNo = `#AGAP-2026-${formattedSeq}`;
+
+      const localDeviceId = localStorage.getItem('agap_device_id') || 'GUEST-DEV';
+
+      // 2. Insert report into Supabase database
+      const payload = {
+        id: ticketNo,
+        device_id: localDeviceId,
+        category: finalHazardType,
+        hazard_type: finalHazardType,
+        severity: severityLevel,
+        location: locationName,
+        coordinates: `${latitude}, ${longitude}`,
+        description: description,
+        status: 'PENDING',
+        proof_photos: photoAttached ? JSON.stringify([photoAttached]) : null,
+        created_at: new Date().toISOString()
+      };
+
+      const { error } = await supabase.from('reports').insert([payload]);
+      if (error) throw error;
+
+      alert(`Emergency Hazard Report Successfully Transmitted!\nTicket Reference: ${ticketNo}\nStatus: PENDING ADMIN REVIEW`);
+
       if (typeof onSubmitSuccess === 'function') {
         onSubmitSuccess();
       }
-    }, 1000);
+    } catch (err) {
+      alert(`[TRANSMISSION ERROR] Could not send report: ${err.message}`);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -195,7 +232,7 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userRole =
 
       <form onSubmit={handleSubmit} style={styles.formCard}>
 
-        {/* Step 1: Hazard Type Selection / Custom Input */}
+        {/* Step 1: Hazard Type */}
         <div style={styles.formSection}>
           <label style={styles.sectionLabel}>1. SELECT OR TYPE HAZARD TYPE</label>
           <div style={styles.categoryGrid}>
@@ -224,7 +261,7 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userRole =
           )}
         </div>
 
-        {/* Step 2: Severity Urgency Level (No default state) */}
+        {/* Step 2: Severity Level */}
         <div style={styles.formSection}>
           <label style={styles.sectionLabel}>2. SEVERITY URGENCY LEVEL</label>
           <div style={styles.severityBar}>
@@ -249,7 +286,7 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userRole =
           )}
         </div>
 
-        {/* Step 3: Interactive Tap-to-Pin Location Map */}
+        {/* Step 3: Map Location */}
         <div style={styles.formSection}>
           <div style={styles.labelRow}>
             <label style={styles.sectionLabel}>3. HAZARD LOCATION (TAP MAP TO PIN)</label>
@@ -279,7 +316,6 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userRole =
             Tap anywhere on the map below to instantly place the hazard pin:
           </div>
 
-          {/* Interactive Leaflet Map Container */}
           <div style={styles.interactiveMapFrame}>
             <div ref={mapContainerRef} style={{ width: '100%', height: '220px' }}></div>
           </div>
