@@ -1,30 +1,23 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
 
-// Helper to safely extract clean Base64 / URL from raw string or JSON array
-const getCleanImageSrc = (raw) => {
-  if (!raw) return null;
-
+// Helper to safely extract an array of clean image Base64/URLs
+const getCleanImageArray = (raw) => {
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw;
   if (typeof raw === 'string') {
     const trimmed = raw.trim();
     if (trimmed.startsWith('[')) {
       try {
         const parsed = JSON.parse(trimmed);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          return typeof parsed[0] === 'string' ? parsed[0] : null;
-        }
+        if (Array.isArray(parsed)) return parsed;
       } catch (e) {
-        // Fallthrough if parsing fails
+        // Fallthrough
       }
     }
-    return trimmed;
+    return [trimmed];
   }
-
-  if (Array.isArray(raw) && raw.length > 0) {
-    return typeof raw[0] === 'string' ? raw[0] : null;
-  }
-
-  return null;
+  return [];
 };
 
 export default function AdminScreen({ onBack }) {
@@ -129,11 +122,6 @@ export default function AdminScreen({ onBack }) {
     return true;
   });
 
-  const selectedReportPhoto = selectedReport ? getCleanImageSrc(selectedReport.proof_photos || null) : null;
-  const selectedUserProofPhoto = selectedUser
-    ? getCleanImageSrc(selectedUser.id_proof_photo || selectedUser.proof_photo || selectedUser.proofPhotos || null)
-    : null;
-
   return (
     <div style={styles.container}>
       {/* Header */}
@@ -178,16 +166,16 @@ export default function AdminScreen({ onBack }) {
             <div style={styles.emptyCard}>No hazard reports submitted in database.</div>
           ) : (
             reports.map((rep, index) => {
-              const photoSrc = getCleanImageSrc(rep.proof_photos || null);
+              const photoArray = getCleanImageArray(rep.proof_photos || []);
 
               return (
                 <div
-                  key={rep.id || rep.ticket_no || `${rep.device_id || 'device'}-${index}`}
+                  key={rep.id || rep.ticket_no || index}
                   style={styles.compactReportCard}
                   onClick={() => setSelectedReport(rep)}
                 >
                   <div style={styles.compactHeaderRow}>
-                    <span style={styles.ticketBadge}>{rep.ticket_no || rep.id || 'TICKET'}</span>
+                    <span style={styles.ticketBadge}>{rep.ticket_no || 'TICKET'}</span>
                     <span style={getStatusBadgeStyle(rep.status)}>{rep.status || 'PENDING'}</span>
                   </div>
                   <h4 style={styles.compactReportTitle}>{rep.hazard_type || rep.category || 'Hazard Alert'}</h4>
@@ -195,11 +183,15 @@ export default function AdminScreen({ onBack }) {
                     {rep.description ? (rep.description.length > 65 ? `${rep.description.substring(0, 65)}...` : rep.description) : 'No description provided.'}
                   </p>
 
-                  {/* Thumbnail Preview in Compact List */}
-                  {photoSrc && (
+                  {/* Multi-Photo Thumbnail Strip */}
+                  {photoArray.length > 0 && (
                     <div style={styles.compactPhotoBar}>
-                      <img src={photoSrc} alt="Evidence Thumb" style={styles.compactThumbImg} />
-                      <span style={styles.compactPhotoLabel}>📷 Evidence Attached (Tap to Inspect)</span>
+                      <div style={styles.thumbStrip}>
+                        {photoArray.slice(0, 3).map((src, i) => (
+                          <img key={i} src={src} alt={`Thumb ${i}`} style={styles.compactThumbImg} />
+                        ))}
+                      </div>
+                      <span style={styles.compactPhotoLabel}>📷 {photoArray.length} Photo(s) Attached</span>
                     </div>
                   )}
 
@@ -230,13 +222,13 @@ export default function AdminScreen({ onBack }) {
             {filteredProfiles.length === 0 ? (
               <div style={styles.emptyCard}>No user records matching filter.</div>
             ) : (
-              filteredProfiles.map((u) => {
+              filteredProfiles.map((u, index) => {
                 const userReports = reports.filter((r) => r.device_id === u.device_id);
                 const isVerified = u.verification_status === 'VERIFIED';
 
                 return (
                   <div
-                    key={u.device_id || u.username || u.id || 'user'}
+                    key={u.device_id || `guest-${index}`}
                     style={styles.compactUserRow}
                     onClick={() => setSelectedUser(u)}
                   >
@@ -274,7 +266,7 @@ export default function AdminScreen({ onBack }) {
               height="180"
               frameBorder="0"
               scrolling="no"
-              src="https://www.openstreetmap.org/export/embed.html?bbox=120.93%2C13.64%2C121.12%2C13.80&layer=mapnik"
+              src="https://example.com"
               style={styles.mapIframe}
             ></iframe>
           </div>
@@ -316,7 +308,7 @@ export default function AdminScreen({ onBack }) {
             <div style={styles.verticalDetailStack}>
               <div style={styles.detailItem}>
                 <span style={styles.detailLabel}>TICKET REFERENCE NUMBER</span>
-                <span style={styles.detailValueBold}>{selectedReport.ticket_no || selectedReport.id || 'N/A'}</span>
+                <span style={styles.detailValueBold}>{selectedReport.ticket_no || 'N/A'}</span>
               </div>
 
               <div style={styles.detailItem}>
@@ -349,16 +341,23 @@ export default function AdminScreen({ onBack }) {
                 <p style={styles.detailTextBody}>{selectedReport.description || 'No description provided.'}</p>
               </div>
 
-              {/* Clean Image Rendering in Modal */}
-              {selectedReportPhoto && (
+              {/* Multi-Photo Gallery in Vertical Detail Modal */}
+              {getCleanImageArray(selectedReport.proof_photos || []).length > 0 && (
                 <div style={styles.detailItem}>
-                  <span style={styles.detailLabel}>ATTACHED EVIDENCE PHOTO (CLICK TO ZOOM)</span>
-                  <img
-                    src={selectedReportPhoto}
-                    alt="Submitted Evidence"
-                    style={styles.detailPhotoThumb}
-                    onClick={() => setInspectImage(selectedReportPhoto)}
-                  />
+                  <span style={styles.detailLabel}>
+                    ATTACHED EVIDENCE ({getCleanImageArray(selectedReport.proof_photos || []).length} Photos - Click to Zoom)
+                  </span>
+                  <div style={styles.modalPhotoGallery}>
+                    {getCleanImageArray(selectedReport.proof_photos || []).map((src, idx) => (
+                      <img
+                        key={idx}
+                        src={src}
+                        alt={`Evidence ${idx + 1}`}
+                        style={styles.galleryPhotoThumb}
+                        onClick={() => setInspectImage(src)}
+                      />
+                    ))}
+                  </div>
                 </div>
               )}
 
@@ -441,7 +440,7 @@ export default function AdminScreen({ onBack }) {
 
               <div style={styles.detailItem}>
                 <span style={styles.detailLabel}>MOBILE PHONE</span>
-                <span style={styles.detailValue}>{selectedUser.phone_number || selectedUser.phone || 'N/A'}</span>
+                <span style={styles.detailValue}>{selectedUser.phone_number || selectedUser.mobile_number || selectedUser.contact_no || 'N/A'}</span>
               </div>
 
               <div style={styles.detailItem}>
@@ -459,14 +458,14 @@ export default function AdminScreen({ onBack }) {
                 <span style={styles.detailValueBadge}>{selectedUser.verification_status || 'GUEST / PENDING'}</span>
               </div>
 
-              {selectedUserProofPhoto && (
+              {getCleanImageArray(selectedUser.id_proof_photo || selectedUser.id_photo || selectedUser.identity_proof_photo || []).length > 0 && (
                 <div style={styles.detailItem}>
                   <span style={styles.detailLabel}>ID PROOF PHOTO (CLICK TO ZOOM)</span>
                   <img
-                    src={selectedUserProofPhoto}
+                    src={getCleanImageArray(selectedUser.id_proof_photo || selectedUser.id_photo || selectedUser.identity_proof_photo || [])[0]}
                     alt="User ID Proof"
                     style={styles.detailPhotoThumb}
-                    onClick={() => setInspectImage(selectedUserProofPhoto)}
+                    onClick={() => setInspectImage(getCleanImageArray(selectedUser.id_proof_photo || selectedUser.id_photo || selectedUser.identity_proof_photo || [])[0])}
                   />
                 </div>
               )}
@@ -493,12 +492,12 @@ export default function AdminScreen({ onBack }) {
         </div>
       )}
 
-      {/* CRISP HIGH-RESOLUTION PHOTO INSPECTION ZOOM MODAL */}
+      {/* HIGH RESOLUTION ZOOM INSPECTION MODAL */}
       {inspectImage && (
         <div style={styles.imageZoomBackdrop} onClick={() => setInspectImage(null)}>
           <div style={styles.imageZoomContent} onClick={(e) => e.stopPropagation()}>
             <div style={styles.imageZoomHeader}>
-              <span style={styles.imageZoomTitle}>Photo Evidence Verification (1st Observation)</span>
+              <span style={styles.imageZoomTitle}>Photo Evidence Verification</span>
               <button style={styles.imageZoomCloseBtn} onClick={() => setInspectImage(null)}>
                 Close [X]
               </button>
@@ -540,7 +539,8 @@ const styles = {
   compactReportTitle: { fontSize: '13px', fontWeight: '800', color: '#0F172A', margin: '2px 0' },
   compactReportDesc: { fontSize: '11px', color: '#475569', margin: '2px 0 6px 0' },
   compactPhotoBar: { display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#F0FDF4', border: '1px solid #A7F3D0', padding: '4px 8px', borderRadius: '6px', marginBottom: '6px' },
-  compactThumbImg: { width: '32px', height: '32px', objectFit: 'cover', borderRadius: '4px', border: '1px solid #0F766E' },
+  thumbStrip: { display: 'flex', gap: '4px' },
+  compactThumbImg: { width: '28px', height: '28px', objectFit: 'cover', borderRadius: '4px', border: '1px solid #0F766E' },
   compactPhotoLabel: { fontSize: '9px', fontWeight: '800', color: '#0F766E' },
   compactTapHint: { fontSize: '9px', fontWeight: '800', color: '#0F766E' },
   subTabRow: { display: 'flex', gap: '4px', marginBottom: '8px' },
@@ -584,6 +584,8 @@ const styles = {
   detailValue: { fontSize: '11px', color: '#0F172A', fontWeight: '600' },
   detailValueBadge: { fontSize: '10px', fontWeight: '800', color: '#DC2626' },
   detailTextBody: { fontSize: '11px', color: '#334155', margin: '2px 0 0 0', lineHeight: '1.3' },
+  modalPhotoGallery: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px', marginTop: '6px' },
+  galleryPhotoThumb: { width: '100%', height: '70px', objectFit: 'cover', borderRadius: '6px', border: '2px solid #0F766E', cursor: 'pointer' },
   detailPhotoThumb: { width: '120px', height: '90px', objectFit: 'cover', borderRadius: '8px', border: '2px solid #0F766E', marginTop: '6px', cursor: 'pointer' },
   stageJudgeBox: { marginTop: '8px', backgroundColor: '#F8FAFC', border: '1px solid #CBD5E1', padding: '10px', borderRadius: '8px' },
   stageJudgeTitle: { fontSize: '9px', fontWeight: '800', color: '#475569', display: 'block', marginBottom: '6px' },
@@ -595,8 +597,6 @@ const styles = {
   btnStageResolve: { padding: '7px', backgroundColor: '#166534', color: '#FFFFFF', border: 'none', borderRadius: '6px', fontSize: '10px', fontWeight: '800', cursor: 'pointer' },
   btnStageReject: { padding: '7px', backgroundColor: '#DC2626', color: '#FFFFFF', border: 'none', borderRadius: '6px', fontSize: '10px', fontWeight: '800', cursor: 'pointer' },
   btnStageDelete: { padding: '7px', backgroundColor: '#475569', color: '#FFFFFF', border: 'none', borderRadius: '6px', fontSize: '10px', fontWeight: '800', cursor: 'pointer' },
-  
-  // High Resolution Inspection Zoom Modal Styles
   imageZoomBackdrop: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(15, 23, 42, 0.92)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 9999, padding: '16px' },
   imageZoomContent: { backgroundColor: '#1E293B', borderRadius: '12px', padding: '16px', maxWidth: '90vw', maxHeight: '90vh', display: 'flex', flexDirection: 'column', width: '100%' },
   imageZoomHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' },

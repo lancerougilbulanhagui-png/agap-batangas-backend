@@ -12,7 +12,8 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userRole =
   const [isGpsLoading, setIsGpsLoading] = useState(false);
 
   const [description, setDescription] = useState('');
-  const [photoData, setPhotoData] = useState(null); // { fileName, base64 }
+  // Multi-photo array state: [{ id, fileName, base64 }]
+  const [photosList, setPhotosList] = useState([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const mapContainerRef = useRef(null);
@@ -123,50 +124,57 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userRole =
     );
   };
 
+  // Multi-photo upload with HTML5 Canvas compression
   const handlePhotoUpload = (e) => {
-    const file = e.target.files && e.target.files[0];
-    if (!file) return;
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        const MAX_WIDTH = 800;
-        const MAX_HEIGHT = 800;
-        let width = img.width;
-        let height = img.height;
+    files.forEach((file) => {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const MAX_WIDTH = 800;
+          const MAX_HEIGHT = 800;
+          let width = img.width;
+          let height = img.height;
 
-        if (width > height) {
-          if (width > MAX_WIDTH) {
-            height *= MAX_WIDTH / width;
-            width = MAX_WIDTH;
+          if (width > height) {
+            if (width > MAX_WIDTH) {
+              height *= MAX_WIDTH / width;
+              width = MAX_WIDTH;
+            }
+          } else {
+            if (height > MAX_HEIGHT) {
+              width *= MAX_HEIGHT / height;
+              height = MAX_HEIGHT;
+            }
           }
-        } else {
-          if (height > MAX_HEIGHT) {
-            width *= MAX_HEIGHT / height;
-            height = MAX_HEIGHT;
-          }
-        }
 
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(img, 0, 0, width, height);
-        const compressedBase64 = canvas.toDataURL('image/jpeg', 0.75);
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, width, height);
+          const compressedBase64 = canvas.toDataURL('image/jpeg', 0.75);
 
-        setPhotoData({
-          fileName: file.name,
-          base64: compressedBase64
-        });
+          setPhotosList((prev) => [
+            ...prev,
+            {
+              id: Date.now() + Math.random(),
+              fileName: file.name,
+              base64: compressedBase64
+            }
+          ]);
+        };
+        img.src = event.target.result;
       };
-      img.src = event.target.result;
-    };
-    reader.readAsDataURL(file);
+      reader.readAsDataURL(file);
+    });
   };
 
-  const handleRemovePhoto = () => {
-    setPhotoData(null);
+  const handleRemovePhoto = (photoId) => {
+    setPhotosList((prev) => prev.filter((p) => p.id !== photoId));
   };
 
   const handleSubmit = async (e) => {
@@ -196,7 +204,15 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userRole =
       const randomSeq = Math.floor(1000 + Math.random() * 9000);
       const ticketNo = `#AGAP-2026-${randomSeq}`;
 
+      // Convert array of base64 photos to JSON string array
+      const photoArrayPayload = photosList.length > 0
+        ? JSON.stringify(photosList.map((p) => p.base64))
+        : null;
+
+      // FIXED: Included 'id' explicitly to prevent NOT NULL violations
       const payload = {
+        id: ticketNo,
+        ticket_no: ticketNo,
         category: finalHazardType,
         hazard_type: finalHazardType,
         severity: severityLevel,
@@ -205,15 +221,15 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userRole =
         description: description,
         status: 'PENDING',
         device_id: localDeviceId,
-        proof_photos: photoData ? photoData.base64 : null,
-        photos: photoData ? photoData.base64 : null
+        proof_photos: photoArrayPayload,
+        photos: photoArrayPayload
       };
 
       const { error } = await supabase.from('reports').insert([payload]);
 
       if (error) throw error;
 
-      alert(`[SUCCESS] Emergency Report Transmitted!\nTicket Ref: ${ticketNo}\nStatus: PENDING ADMIN REVIEW`);
+      alert(`[SUCCESS] Emergency Report Transmitted!\nTicket Ref: ${ticketNo}\nPhotos Attached: ${photosList.length}\nStatus: PENDING ADMIN REVIEW`);
 
       if (typeof onSubmitSuccess === 'function') {
         onSubmitSuccess();
@@ -317,26 +333,43 @@ export default function ReportSubmitScreen({ onBack, onSubmitSuccess, userRole =
           </div>
         </div>
 
-        {/* Step 4: Photo Evidence Attachment with Removal */}
+        {/* Step 4: Multi-Photo Evidence Attachment */}
         <div style={styles.formSection}>
-          <label style={styles.sectionLabel}>4. ATTACH PHOTO EVIDENCE</label>
+          <div style={styles.labelRow}>
+            <label style={styles.sectionLabel}>4. ATTACH PHOTO EVIDENCE (1 OR MORE)</label>
+            <span style={styles.photoCountBadge}>{photosList.length} Attached</span>
+          </div>
 
-          {photoData ? (
-            <div style={styles.photoPreviewCard}>
-              <img src={photoData.base64} alt="Attached Preview" style={styles.photoThumbnail} />
-              <div style={styles.photoInfoBox}>
-                <div style={styles.photoFileName}>{photoData.fileName}</div>
-                <button type="button" style={styles.removePhotoBtn} onClick={handleRemovePhoto}>
-                  Remove Attachment
-                </button>
-              </div>
+          {/* Photo Gallery Grid */}
+          {photosList.length > 0 && (
+            <div style={styles.photoGrid}>
+              {photosList.map((photo) => (
+                <div key={photo.id} style={styles.photoItemCard}>
+                  <img src={photo.base64} alt="Attached Preview" style={styles.photoItemImg} />
+                  <button
+                    type="button"
+                    style={styles.photoItemRemoveBtn}
+                    onClick={() => handleRemovePhoto(photo.id)}
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
             </div>
-          ) : (
-            <label style={styles.photoDropzone}>
-              <div style={styles.photoDropText}>+ Tap to Upload Photo Evidence</div>
-              <input type="file" accept="image/*" onChange={handlePhotoUpload} style={{ display: 'none' }} />
-            </label>
           )}
+
+          <label style={styles.photoDropzone}>
+            <div style={styles.photoDropText}>
+              {photosList.length > 0 ? '+ Tap to Add More Photos' : '+ Tap to Upload 1 or More Photos'}
+            </div>
+            <input
+              type="file"
+              accept="image/*"
+              multiple
+              onChange={handlePhotoUpload}
+              style={{ display: 'none' }}
+            />
+          </label>
         </div>
 
         {/* Step 5: Remarks */}
@@ -384,13 +417,13 @@ const styles = {
   gpsTriggerBtn: { backgroundColor: '#CCFBF1', border: '1px solid #99F6E4', color: '#0F766E', padding: '3px 8px', borderRadius: '6px', fontSize: '10px', fontWeight: '800', cursor: 'pointer' },
   textInput: { width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '12px', boxSizing: 'border-box', marginBottom: '8px' },
   interactiveMapFrame: { borderRadius: '10px', overflow: 'hidden', border: '2px solid #0F766E' },
-  photoDropzone: { border: '2px dashed #0F766E', backgroundColor: '#F0FDF4', padding: '14px', borderRadius: '12px', display: 'flex', justifyContent: 'center', cursor: 'pointer' },
+  photoCountBadge: { fontSize: '10px', fontWeight: '800', color: '#0F766E', backgroundColor: '#CCFBF1', padding: '2px 6px', borderRadius: '4px' },
+  photoGrid: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px', marginBottom: '8px' },
+  photoItemCard: { position: 'relative', width: '100%', paddingTop: '100%', borderRadius: '8px', overflow: 'hidden', border: '1px solid #0F766E' },
+  photoItemImg: { position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover' },
+  photoItemRemoveBtn: { position: 'absolute', top: '4px', right: '4px', backgroundColor: '#DC2626', color: '#FFFFFF', border: 'none', borderRadius: '50%', width: '20px', height: '20px', fontSize: '10px', fontWeight: '800', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' },
+  photoDropzone: { border: '2px dashed #0F766E', backgroundColor: '#F0FDF4', padding: '12px', borderRadius: '10px', display: 'flex', justifyContent: 'center', cursor: 'pointer' },
   photoDropText: { fontSize: '11px', fontWeight: '800', color: '#0F766E' },
-  photoPreviewCard: { display: 'flex', alignItems: 'center', gap: '12px', backgroundColor: '#F0FDF4', border: '1px solid #A7F3D0', padding: '10px', borderRadius: '10px' },
-  photoThumbnail: { width: '60px', height: '60px', objectFit: 'cover', borderRadius: '6px', border: '1px solid #CBD5E1' },
-  photoInfoBox: { display: 'flex', flexDirection: 'column', gap: '4px', flex: 1 },
-  photoFileName: { fontSize: '11px', fontWeight: '700', color: '#0F172A', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '200px' },
-  removePhotoBtn: { backgroundColor: '#FEE2E2', border: '1px solid #FCA5A5', color: '#991B1B', padding: '4px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: '800', cursor: 'pointer', alignSelf: 'flex-start' },
   textArea: { width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '12px', boxSizing: 'border-box', fontFamily: 'inherit' },
   submitBtn: { width: '100%', padding: '12px', backgroundColor: '#0F766E', color: '#FFFFFF', border: 'none', borderRadius: '10px', fontSize: '13px', fontWeight: '800', cursor: 'pointer', marginTop: '8px' },
   submitBtnDisabled: { width: '100%', padding: '12px', backgroundColor: '#94A3B8', color: '#FFFFFF', border: 'none', borderRadius: '10px', fontSize: '13px', fontWeight: '800', cursor: 'not-allowed', marginTop: '8px' }
