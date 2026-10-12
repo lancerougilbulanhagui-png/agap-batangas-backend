@@ -1,12 +1,15 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 
 export default function DangerMapZoneScreen({ onBack }) {
   const [selectedFilter, setSelectedFilter] = useState('ALL');
   const [activePinId, setActivePinId] = useState(null);
-  const [mapType, setMapType] = useState('m');
   const [activeHazards, setActiveHazards] = useState([]);
-  const [userGps, setUserGps] = useState({ lat: 13.7853, lng: 121.0745 });
+  const [userGps, setUserGps] = useState({ lat: 13.7565, lng: 121.0583 });
+
+  const mapContainerRef = useRef(null);
+  const mapInstanceRef = useRef(null);
+  const markersRef = useRef({});
 
   useEffect(() => {
     fetchActiveHazards();
@@ -37,9 +40,89 @@ export default function DangerMapZoneScreen({ onBack }) {
     ? activeHazards
     : activeHazards.filter((h) => (h.severity || '').toUpperCase() === selectedFilter || (h.category || '').toUpperCase().includes(selectedFilter));
 
-  const activeLoc = activePinId ? activeHazards.find((h) => h.id === activePinId) : null;
-  const centerCoords = activeLoc && activeLoc.coordinates ? activeLoc.coordinates : `${userGps.lat},${userGps.lng}`;
-  const embedUrl = `https://maps.google.com/maps?q=${encodeURIComponent(centerCoords)}&t=${mapType}&z=${activeLoc ? 16 : 14}&ie=UTF8&iwloc=&output=embed`;
+  // Initialize Leaflet Live GPS Map with Green Pin for User and Red Pins for Approved Hazards
+  useEffect(() => {
+    const loadLeaflet = () => {
+      if (!document.getElementById('leaflet-css')) {
+        const link = document.createElement('link');
+        link.id = 'leaflet-css';
+        link.rel = 'stylesheet';
+        link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+        document.head.appendChild(link);
+      }
+      if (!window.L) {
+        const script = document.createElement('script');
+        script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+        script.onload = initMap;
+        document.head.appendChild(script);
+      } else {
+        initMap();
+      }
+    };
+
+    const initMap = () => {
+      if (!mapContainerRef.current || mapInstanceRef.current) return;
+      const L = window.L;
+      const map = L.map(mapContainerRef.current).setView([userGps.lat, userGps.lng], 14);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap' }).addTo(map);
+
+      // 1. GREEN PIN FOR USER LOCATION
+      const greenIcon = L.divIcon({
+        className: 'custom-pin-green',
+        html: `<div style="background-color: #166534; width: 16px; height: 16px; border-radius: 50%; border: 3px solid #FFFFFF; box-shadow: 0 2px 6px rgba(0,0,0,0.4);"></div>`,
+        iconSize: [20, 20],
+        iconAnchor: [10, 10]
+      });
+
+      L.marker([userGps.lat, userGps.lng], { icon: greenIcon })
+        .addTo(map)
+        .bindPopup('<strong>Your Current Location</strong>');
+
+      // 2. RED PINS FOR APPROVED HAZARDS
+      const redIcon = L.divIcon({
+        className: 'custom-pin-red',
+        html: `<div style="background-color: #DC2626; width: 16px; height: 16px; border-radius: 50%; border: 3px solid #FFFFFF; box-shadow: 0 2px 6px rgba(0,0,0,0.4);"></div>`,
+        iconSize: [20, 20],
+        iconAnchor: [10, 10]
+      });
+
+      activeHazards.forEach((haz) => {
+        if (haz.coordinates) {
+          const parts = haz.coordinates.split(',').map((s) => parseFloat(s.trim()));
+          if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+            const m = L.marker([parts[0], parts[1]], { icon: redIcon })
+              .addTo(map)
+              .bindPopup(`<strong>${haz.hazard_type || haz.category}</strong><br/>Ticket: ${haz.id || haz.ticket_no}<br/>Severity: ${haz.severity}`);
+            markersRef.current[haz.id] = m;
+          }
+        }
+      });
+
+      mapInstanceRef.current = map;
+    };
+
+    loadLeaflet();
+
+    return () => {
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.remove();
+        mapInstanceRef.current = null;
+      }
+    };
+  }, [activeHazards, userGps]);
+
+  const handleSelectPin = (item) => {
+    setActivePinId(item.id);
+    if (mapInstanceRef.current && item.coordinates) {
+      const parts = item.coordinates.split(',').map((s) => parseFloat(s.trim()));
+      if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+        mapInstanceRef.current.setView([parts[0], parts[1]], 16);
+        if (markersRef.current[item.id]) {
+          markersRef.current[item.id].openPopup();
+        }
+      }
+    }
+  };
 
   return (
     <div style={styles.container}>
@@ -47,20 +130,20 @@ export default function DangerMapZoneScreen({ onBack }) {
         <button style={styles.backBtn} onClick={onBack}>&lt; Back</button>
         <div>
           <h2 style={styles.headerTitle}>Batangas Danger Zone Map</h2>
-          <div style={styles.headerSub}>Live Approved Hazard Pins (Auto-clears when resolved)</div>
+          <div style={styles.headerSub}>Live Approved Hazard Pins (Green: You, Red: Hazards)</div>
         </div>
       </div>
 
       <div style={styles.mapCard}>
         <div style={styles.rowBetween}>
-          <span style={styles.badgeGreen}>LIVE ACTIVE HAZARD MAP</span>
-          <div style={{ display: 'flex', gap: '4px' }}>
-            <button style={mapType === 'm' ? styles.toggleActive : styles.toggleInactive} onClick={() => setMapType('m')}>Roadmap</button>
-            <button style={mapType === 'k' ? styles.toggleActive : styles.toggleInactive} onClick={() => setMapType('k')}>Satellite</button>
+          <span style={styles.badgeGreen}>LIVE GPS MAP</span>
+          <div style={styles.legendBox}>
+            <span style={styles.legendGreen}>&bull; You (Green)</span>
+            <span style={styles.legendRed}>&bull; Hazards (Red)</span>
           </div>
         </div>
         <div style={styles.mapFrame}>
-          <iframe title="Danger Zone Map" width="100%" height="230" frameBorder="0" scrolling="no" src={embedUrl} style={{ width: '100%', display: 'block' }}></iframe>
+          <div ref={mapContainerRef} style={{ width: '100%', height: '230px' }}></div>
         </div>
       </div>
 
@@ -75,7 +158,7 @@ export default function DangerMapZoneScreen({ onBack }) {
           <div style={styles.emptyCard}>No active hazard pins in this category. Map is clear!</div>
         ) : (
           filtered.map((item) => (
-            <div key={item.id} style={activePinId === item.id ? styles.cardActive : styles.card} onClick={() => setActivePinId(item.id)}>
+            <div key={item.id} style={activePinId === item.id ? styles.cardActive : styles.card} onClick={() => handleSelectPin(item)}>
               <div style={styles.rowBetween}>
                 <span style={styles.badgeTeal}>{item.id || item.ticket_no}</span>
                 <span style={styles.badgeRed}>{item.severity}</span>
@@ -99,11 +182,12 @@ const styles = {
   headerSub: { fontSize: '11px', color: '#64748B' },
   mapCard: { backgroundColor: '#FFFFFF', border: '1px solid #CBD5E1', borderRadius: '10px', padding: '8px', marginBottom: '10px' },
   rowBetween: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' },
+  legendBox: { display: 'flex', gap: '8px' },
+  legendGreen: { fontSize: '9px', fontWeight: '800', color: '#166534' },
+  legendRed: { fontSize: '9px', fontWeight: '800', color: '#DC2626' },
   badgeGreen: { fontSize: '9px', fontWeight: '800', backgroundColor: '#DCFCE7', color: '#166534', padding: '2px 6px', borderRadius: '4px' },
   badgeTeal: { fontSize: '9px', fontWeight: '800', backgroundColor: '#CCFBF1', color: '#0F766E', padding: '2px 6px', borderRadius: '4px' },
   badgeRed: { fontSize: '9px', fontWeight: '800', backgroundColor: '#FEE2E2', color: '#991B1B', padding: '2px 6px', borderRadius: '4px' },
-  toggleActive: { padding: '4px 8px', backgroundColor: '#0F766E', color: '#FFFFFF', border: 'none', borderRadius: '4px', fontSize: '10px', fontWeight: '800', cursor: 'pointer' },
-  toggleInactive: { padding: '4px 8px', backgroundColor: '#F1F5F9', color: '#64748B', border: 'none', borderRadius: '4px', fontSize: '10px', fontWeight: '600', cursor: 'pointer' },
   mapFrame: { borderRadius: '6px', overflow: 'hidden', border: '1px solid #CBD5E1', marginTop: '4px' },
   chipRow: { display: 'flex', gap: '6px', overflowX: 'auto', marginBottom: '10px' },
   chipActive: { padding: '6px 12px', backgroundColor: '#0F766E', color: '#FFFFFF', border: 'none', borderRadius: '16px', fontSize: '10px', fontWeight: '800', cursor: 'pointer' },
