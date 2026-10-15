@@ -1,47 +1,36 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<project xmlns="[suspicious link removed]" 
-         xmlns:xsi="[suspicious link removed]"
-         xsi:schemaLocation="[suspicious link removed] [suspicious link removed]">
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<project>
     <modelVersion>4.0.0</modelVersion>
-    
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
         <version>3.2.4</version>
-        <relativePath/> <!-- lookup parent from repository -->
+        <relativePath/>
     </parent>
 
     <groupId>com.agap</groupId>
     <artifactId>agap-batangas-backend</artifactId>
     <version>0.0.1-SNAPSHOT</version>
     <name>agap-batangas-backend</name>
-    <description>Backend API for Project AGAP Batangas</description>
 
     <properties>
         <java.version>17</java.version>
     </properties>
 
     <dependencies>
-        <!-- Spring Boot Web for REST APIs -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
-
-        <!-- Spring Data JPA for Supabase / PostgreSQL -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-jpa</artifactId>
         </dependency>
-
-        <!-- PostgreSQL JDBC Driver -->
         <dependency>
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>
             <scope>runtime</scope>
         </dependency>
-
-        <!-- Spring Boot Starter Test -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
