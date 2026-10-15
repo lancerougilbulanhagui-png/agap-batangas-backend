@@ -1,4 +1,4 @@
-﻿package com.agap.repository;
+package com.agap.repository;
 
 import com.agap.model.Report;
 import org.springframework.data.jpa.repository.JpaRepository;

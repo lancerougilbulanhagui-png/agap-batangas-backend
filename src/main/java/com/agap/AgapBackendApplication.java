@@ -1,4 +1,4 @@
-﻿package com.agap;
+package com.agap;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;

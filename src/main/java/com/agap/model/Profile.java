@@ -1,4 +1,4 @@
-﻿package com.agap.model;
+package com.agap.model;
 
 import jakarta.persistence.*;
 
