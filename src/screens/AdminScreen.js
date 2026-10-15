@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
 
 export default function AdminScreen({ onBack }) {
@@ -18,26 +18,13 @@ export default function AdminScreen({ onBack }) {
   // Calendar Analytics Selected Month (YYYY-MM)
   const [selectedMonth, setSelectedMonth] = useState('2026-10');
 
-  // User GPS for Live Map
-  const [userGps, setUserGps] = useState({ lat: 13.7565, lng: 121.0583 });
-
   // Modals & Inspection Overlays
   const [selectedReport, setSelectedReport] = useState(null);
   const [selectedUser, setSelectedUser] = useState(null);
   const [inspectImage, setInspectImage] = useState(null);
 
-  // Map Container Refs for Leaflet
-  const adminMapContainerRef = useRef(null);
-  const adminMapInstanceRef = useRef(null);
-
   useEffect(() => {
     fetchAdminData();
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => setUserGps({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-        () => {}
-      );
-    }
   }, []);
 
   const fetchAdminData = async () => {
@@ -70,7 +57,7 @@ export default function AdminScreen({ onBack }) {
 
       if (error) throw error;
 
-      alert(`Report ticket ${reportId} updated to stage: ${newStatus}`);
+      alert(`Report ticket ${reportId} stage updated to: ${newStatus}`);
       if (selectedReport && selectedReport.id === reportId) {
         setSelectedReport({ ...selectedReport, status: newStatus });
       }
@@ -80,7 +67,7 @@ export default function AdminScreen({ onBack }) {
     }
   };
 
-  // 1-Click Permanent Purge of Rejected Data (2nd Verification Check)
+  // 1-Click Permanent Purge of Rejected Data (2nd Verification Prompt)
   const handlePurgeAllRejectedData = async () => {
     const rejectedList = reports.filter((r) => ['REJECTED', 'DELETED'].includes((r.status || '').toUpperCase()));
     if (rejectedList.length === 0) {
@@ -97,7 +84,7 @@ export default function AdminScreen({ onBack }) {
 
         if (error) throw error;
 
-        alert('All rejected report records permanently deleted.');
+        alert('All rejected report records permanently deleted from database.');
         setSelectedReport(null);
         fetchAdminData();
       } catch (err) {
@@ -140,7 +127,7 @@ export default function AdminScreen({ onBack }) {
     ['REJECTED', 'DELETED'].includes((r.status || '').toUpperCase())
   );
 
-  // User Directory Lists
+  // User Directory Categorization
   const verifiedCitizens = profiles
     .filter((p) => (p.verification_status || '').toUpperCase() === 'VERIFIED')
     .sort((a, b) => (a.username || a.full_name || '').localeCompare(b.username || b.full_name || ''));
@@ -148,13 +135,13 @@ export default function AdminScreen({ onBack }) {
   const guestUsers = profiles
     .filter((p) => (p.verification_status || 'GUEST').toUpperCase() !== 'VERIFIED');
 
-  // Verification Requests (Voluntary Submissions Only)
+  // Pending Citizen Verification Requests (Only users who voluntarily submitted ID proof)
   const pendingVerificationRequests = profiles.filter((p) => 
     (p.verification_status || '').toUpperCase() === 'PENDING' ||
     ((p.verification_status || '').toUpperCase() !== 'VERIFIED' && p.id_proof_photo)
   );
 
-  // Get Submissions for a Specific User
+  // Get Submissions for a Specific User or Device ID
   const getUserSubmissions = (userObj) => {
     if (!userObj) return [];
     return reports.filter((r) => 
@@ -163,7 +150,7 @@ export default function AdminScreen({ onBack }) {
     );
   };
 
-  // Submitter Profile Mapping
+  // Find Submitter Info for a Report
   const getSubmitterInfo = (reportObj) => {
     if (!reportObj) return { username: 'Unknown User', deviceId: 'N/A', status: 'GUEST', profile: null };
     const matchedProfile = profiles.find((p) => p.device_id && p.device_id === reportObj.device_id);
@@ -182,91 +169,6 @@ export default function AdminScreen({ onBack }) {
       profile: { device_id: reportObj.device_id || 'GUEST-DEV', username: reportObj.sender_name || 'Guest Reporter', verification_status: 'GUEST' }
     };
   };
-
-  // Redirect from User Modal to Specific Submitted Report Details
-  const handleRedirectToReport = (reportObj) => {
-    setSelectedUser(null);
-    setSelectedReport(reportObj);
-    if (['APPROVED', 'DISPATCHED', 'IN_PROGRESS'].includes((reportObj.status || '').toUpperCase())) {
-      setCurrentView('ACTIVE_TRACKER');
-    } else if (['REJECTED', 'DELETED'].includes((reportObj.status || '').toUpperCase())) {
-      setCurrentView('REJECTED_ARCHIVE');
-    } else {
-      setCurrentView('SUBMITTED_REPORTS');
-    }
-  };
-
-  // Leaflet Map Initialization for Live GPS Map
-  useEffect(() => {
-    if (currentView !== 'MAP_ANALYTICS') return;
-
-    const loadLeaflet = () => {
-      if (!document.getElementById('leaflet-css')) {
-        const link = document.createElement('link');
-        link.id = 'leaflet-css';
-        link.rel = 'stylesheet';
-        link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
-        document.head.appendChild(link);
-      }
-      if (!window.L) {
-        const script = document.createElement('script');
-        script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
-        script.onload = initAdminMap;
-        document.head.appendChild(script);
-      } else {
-        initAdminMap();
-      }
-    };
-
-    const initAdminMap = () => {
-      if (!adminMapContainerRef.current || adminMapInstanceRef.current) return;
-      const L = window.L;
-      const map = L.map(adminMapContainerRef.current).setView([userGps.lat, userGps.lng], 13);
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap' }).addTo(map);
-
-      // 1. GREEN PIN FOR USER CURRENT LOCATION
-      const greenIcon = L.divIcon({
-        className: 'custom-pin-green',
-        html: `<div style="background-color: #166534; width: 16px; height: 16px; border-radius: 50%; border: 3px solid #FFFFFF; box-shadow: 0 2px 6px rgba(0,0,0,0.4);"></div>`,
-        iconSize: [20, 20],
-        iconAnchor: [10, 10]
-      });
-
-      L.marker([userGps.lat, userGps.lng], { icon: greenIcon })
-        .addTo(map)
-        .bindPopup('<strong>Your Current Location</strong>');
-
-      // 2. RED PINS FOR APPROVED ACTIVE HAZARDS
-      const redIcon = L.divIcon({
-        className: 'custom-pin-red',
-        html: `<div style="background-color: #DC2626; width: 16px; height: 16px; border-radius: 50%; border: 3px solid #FFFFFF; box-shadow: 0 2px 6px rgba(0,0,0,0.4);"></div>`,
-        iconSize: [20, 20],
-        iconAnchor: [10, 10]
-      });
-
-      activeTrackerReports.forEach((haz) => {
-        if (haz.coordinates) {
-          const parts = haz.coordinates.split(',').map((s) => parseFloat(s.trim()));
-          if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
-            L.marker([parts[0], parts[1]], { icon: redIcon })
-              .addTo(map)
-              .bindPopup(`<strong>${haz.hazard_type || haz.category}</strong><br/>Ticket: ${haz.id || haz.ticket_no}<br/>Status: ${haz.status}`);
-          }
-        }
-      });
-
-      adminMapInstanceRef.current = map;
-    };
-
-    loadLeaflet();
-
-    return () => {
-      if (adminMapInstanceRef.current) {
-        adminMapInstanceRef.current.remove();
-        adminMapInstanceRef.current = null;
-      }
-    };
-  }, [currentView, activeTrackerReports, userGps]);
 
   // Calendar Analytics Calculations
   const getCalendarMonthlyChartData = () => {
@@ -324,82 +226,72 @@ export default function AdminScreen({ onBack }) {
         </div>
       </div>
 
-      {/* 1. MAIN DASHBOARD HOME VIEW (Clean & Short Header + Middle Right Badges) */}
+      {/* 1. MAIN DASHBOARD HOME VIEW (Clean Layout) */}
       {currentView === 'DASHBOARD' && (
         <div style={styles.dashboardContainer}>
-          {/* Welcome Card - Short & Clean */}
-          <div style={styles.welcomeCard}>
-            <div style={styles.welcomeTag}>CDRRMO OPERATIONS</div>
+          {/* Minimal Welcoming Banner */}
+          <div style={styles.welcomeBanner}>
+            <div style={styles.welcomeTag}>OFFICIAL ADMINISTRATOR PORTAL</div>
             <h3 style={styles.welcomeTitle}>Welcome back, Admin</h3>
-            <p style={styles.welcomeDesc}>Monitor hazards, manage citizen reports, and track live analytics.</p>
+            <p style={styles.welcomeSubtext}>Monitor hazards, manage citizen reports, and track live analytics.</p>
           </div>
 
-          {/* Core Command Modules List (Layout: Title Top, Short Desc Bottom, Badge Middle Right) */}
+          {/* Module Cards Stack */}
           <div style={styles.moduleSectionTitle}>COMMAND CENTER MODULES</div>
           <div style={styles.moduleStack}>
             
-            {/* Module 1: Submitted Reports */}
+            {/* Card 1: Submitted Reports */}
             <div style={styles.moduleCard} onClick={() => setCurrentView('SUBMITTED_REPORTS')}>
-              <div style={styles.moduleCardMainRow}>
-                <div style={styles.moduleLeftColumn}>
-                  <div style={styles.moduleName}>Submitted Reports Database</div>
-                  <div style={styles.moduleShortDesc}>Review tickets & triage incoming hazard reports.</div>
-                </div>
-                <div style={styles.moduleRightBadgeBox}>
-                  <span style={styles.badgeOrange}>{submittedReports.length} Needs Review</span>
-                </div>
+              <div style={styles.moduleCardLeft}>
+                <span style={styles.moduleCardTitle}>Submitted Reports Database</span>
+                <span style={styles.moduleCardShortDesc}>Review incoming reports, inspect photos & triage</span>
+              </div>
+              <div style={styles.moduleCardRight}>
+                <span style={styles.badgeOrange}>{submittedReports.length} Needs Review</span>
               </div>
             </div>
 
-            {/* Module 2: Active Hazard Tracker */}
+            {/* Card 2: Active Hazard Tracker */}
             <div style={styles.moduleCard} onClick={() => setCurrentView('ACTIVE_TRACKER')}>
-              <div style={styles.moduleCardMainRow}>
-                <div style={styles.moduleLeftColumn}>
-                  <div style={styles.moduleName}>Active Hazard Tracker</div>
-                  <div style={styles.moduleShortDesc}>Manage operational progression: Approved to Resolved.</div>
-                </div>
-                <div style={styles.moduleRightBadgeBox}>
-                  <span style={styles.badgeTeal}>{activeTrackerReports.length} Active</span>
-                </div>
+              <div style={styles.moduleCardLeft}>
+                <span style={styles.moduleCardTitle}>Active Hazard Tracker</span>
+                <span style={styles.moduleCardShortDesc}>Manage operational stages & dispatch units</span>
+              </div>
+              <div style={styles.moduleCardRight}>
+                <span style={styles.badgeTeal}>{activeTrackerReports.length} Active</span>
               </div>
             </div>
 
-            {/* Module 3: User & Device Handling */}
+            {/* Card 3: User & Device Handling */}
             <div style={styles.moduleCard} onClick={() => setCurrentView('USER_HANDLING')}>
-              <div style={styles.moduleCardMainRow}>
-                <div style={styles.moduleLeftColumn}>
-                  <div style={styles.moduleName}>User & Device Handling</div>
-                  <div style={styles.moduleShortDesc}>Directory sorting, report history & ID verifications.</div>
-                </div>
-                <div style={styles.moduleRightBadgeBox}>
-                  <span style={styles.badgeBlue}>{profiles.length} Accounts</span>
-                </div>
+              <div style={styles.moduleCardLeft}>
+                <span style={styles.moduleCardTitle}>User & Device Handling</span>
+                <span style={styles.moduleCardShortDesc}>Directory, submissions history & verification requests</span>
+              </div>
+              <div style={styles.moduleCardRight}>
+                <span style={styles.badgeBlue}>{profiles.length} Accounts</span>
               </div>
             </div>
 
-            {/* Module 4: Deleted / Rejected Archive */}
+            {/* Card 4: Deleted / Rejected Data */}
             <div style={styles.moduleCard} onClick={() => setCurrentView('REJECTED_ARCHIVE')}>
-              <div style={styles.moduleCardMainRow}>
-                <div style={styles.moduleLeftColumn}>
-                  <div style={styles.moduleName}>Deleted & Rejected Data</div>
-                  <div style={styles.moduleShortDesc}>Archive repository with 1-Click permanent purge.</div>
-                </div>
-                <div style={styles.moduleRightBadgeBox}>
-                  <span style={styles.badgeRed}>{rejectedDataReports.length} Records</span>
-                </div>
+              <div style={styles.moduleCardLeft}>
+                <span style={styles.moduleCardTitle}>Deleted & Rejected Data</span>
+                <span style={styles.moduleCardShortDesc}>Archive repository with 1-click permanent delete</span>
+              </div>
+              <div style={styles.moduleCardRight}>
+                <span style={styles.badgeRed}>{rejectedDataReports.length} Archived</span>
               </div>
             </div>
 
-            {/* Module 5: Live Map & Analytics */}
+            {/* Card 5: Map & Analytics */}
             <div style={styles.moduleCard} onClick={() => setCurrentView('MAP_ANALYTICS')}>
-              <div style={styles.moduleCardMainRow}>
-                <div style={styles.moduleLeftColumn}>
-                  <div style={styles.moduleName}>Live Danger Map & Analytics</div>
-                  <div style={styles.moduleShortDesc}>Clean GPS map pins & calendar monthly trends.</div>
-                </div>
-                <div style={styles.moduleRightBadgeBox}>
-                  <span style={styles.badgeGreen}>Live View</span>
-                </div>
+              <div style={styles.moduleCardLeft}>
+                <span style={styles.moduleCardTitle}>Live Map & Calendar Analytics</span>
+                <span style={styles.moduleCardShortDesc}>Clean danger map view & monthly incident graphs</span>
+              </div>
+              <div style={styles.moduleCardRight}>
+                <span style={styles.badgeGreen}>Live View</span>
               </div>
             </div>
 
@@ -431,7 +323,7 @@ export default function AdminScreen({ onBack }) {
                   
                   {/* Submitter Info */}
                   <div style={styles.submitterBar}>
-                    <span style={styles.submitterText}>Submitted by: <strong>@{submitter.username}</strong> ({submitter.deviceId})</span>
+                    <span style={styles.submitterText}>Submitted by: <strong>@{submitter.username}</strong> (Device ID: {submitter.deviceId})</span>
                     <span style={getUserStatusBadgeStyle(submitter.status)}>{(submitter.status || 'GUEST').toUpperCase()}</span>
                   </div>
 
@@ -519,26 +411,26 @@ export default function AdminScreen({ onBack }) {
         </div>
       )}
 
-      {/* 4. USER & DEVICE HANDLING (2 DISTINCT SUB-VIEWS / TYPES) */}
+      {/* 4. USER & DEVICE HANDLING (2 DISTINCT SUB-VIEWS) */}
       {currentView === 'USER_HANDLING' && (
         <div style={styles.sectionStack}>
-          {/* Sub-View Switcher */}
+          {/* Sub-View Switcher Bar */}
           <div style={styles.subTabContainer}>
             <button
               style={userSubTab === 'DIRECTORY' ? styles.subTabBtnActive : styles.subTabBtnInactive}
               onClick={() => setUserSubTab('DIRECTORY')}
             >
-              Type 1: User Directory ({profiles.length})
+              Directory ({profiles.length})
             </button>
             <button
               style={userSubTab === 'VERIFICATION_PORTAL' ? styles.subTabBtnActive : styles.subTabBtnInactive}
               onClick={() => setUserSubTab('VERIFICATION_PORTAL')}
             >
-              Type 2: Verification Requests ({pendingVerificationRequests.length})
+              Verification Requests ({pendingVerificationRequests.length})
             </button>
           </div>
 
-          {/* SUB-VIEW TYPE 1: USER DIRECTORY */}
+          {/* SUB-VIEW 1: USER DIRECTORY */}
           {userSubTab === 'DIRECTORY' && (
             <div style={styles.sectionStack}>
               <div style={styles.chipFilterRow}>
@@ -579,12 +471,12 @@ export default function AdminScreen({ onBack }) {
                 </div>
               )}
 
-              {/* Guest Users List (Sequential #1 to #N) */}
+              {/* Guest Users List (Sequential #1 to #N with Device ID Tracking) */}
               {(directoryFilter === 'ALL' || directoryFilter === 'GUEST' || directoryFilter === 'PENALIZED' || directoryFilter === 'BANNED') && (
                 <div>
-                  <div style={styles.sectionSubTitle}>Guest Users (Numbered List)</div>
+                  <div style={styles.sectionSubTitle}>Guest Users (Tracked by Device ID)</div>
                   {guestUsers.length === 0 ? (
-                    <div style={styles.emptyCard}>No guest accounts found.</div>
+                    <div style={styles.emptyCard}>No guest device accounts found.</div>
                   ) : (
                     guestUsers.map((user, index) => {
                       const userReports = getUserSubmissions(user);
@@ -609,12 +501,12 @@ export default function AdminScreen({ onBack }) {
             </div>
           )}
 
-          {/* SUB-VIEW TYPE 2: VERIFICATION REQUESTS PORTAL */}
+          {/* SUB-VIEW 2: CITIZEN VERIFICATION REQUESTS */}
           {userSubTab === 'VERIFICATION_PORTAL' && (
             <div style={styles.sectionStack}>
-              <div style={styles.sectionSubTitle}>Pending Citizen Identity Verification Requests</div>
+              <div style={styles.sectionSubTitle}>Pending Identity Verification Submissions</div>
               {pendingVerificationRequests.length === 0 ? (
-                <div style={styles.emptyCard}>No pending identity verification requests. Unverified guests use devices freely without restrictions.</div>
+                <div style={styles.emptyCard}>No pending identity verification submissions. Unverified guests continue using their devices smoothly!</div>
               ) : (
                 pendingVerificationRequests.map((user) => (
                   <div key={user.device_id || user.id} style={styles.verificationCard}>
@@ -627,7 +519,7 @@ export default function AdminScreen({ onBack }) {
 
                     {user.id_proof_photo && (
                       <div style={styles.idPhotoContainer}>
-                        <div style={styles.fieldLabel}>UPLOADED RESIDENT ID PROOF:</div>
+                        <div style={styles.fieldLabel}>UPLOADED GOVERNMENT / RESIDENT ID PROOF:</div>
                         <img 
                           src={user.id_proof_photo} 
                           alt="ID Proof" 
@@ -648,7 +540,7 @@ export default function AdminScreen({ onBack }) {
                         style={styles.btnReject}
                         onClick={() => handleUpdateUserStatus(user.device_id, 'GUEST', 'Verification rejected')}
                       >
-                        Reject Request
+                        Reject Verification
                       </button>
                     </div>
                   </div>
@@ -679,7 +571,7 @@ export default function AdminScreen({ onBack }) {
                     <span style={styles.badgeRed}>REJECTED</span>
                   </div>
                   <h4 style={styles.itemTitle}>{rep.hazard_type || rep.category}</h4>
-                  <p style={styles.itemMeta}>Submitted by: @{submitter.username} (Device: {submitter.deviceId})</p>
+                  <p style={styles.itemMeta}>Submitted by: @{submitter.username} (Device ID: {submitter.deviceId})</p>
                   <p style={styles.itemMeta}>Remarks: {rep.description || 'No remarks provided.'}</p>
                 </div>
               );
@@ -688,18 +580,19 @@ export default function AdminScreen({ onBack }) {
         </div>
       )}
 
-      {/* 6. MAP & CALENDAR ANALYTICS (LIVE GPS LEAFLET MAP WITH GREEN & RED PINS) */}
+      {/* 6. MAP & CALENDAR ANALYTICS */}
       {currentView === 'MAP_ANALYTICS' && (
         <div style={styles.sectionStack}>
-          <div style={styles.sectionTitle}>Live Approved Danger Zone Map (Green: You, Red: Hazards)</div>
-          
-          <div style={styles.mapCardBox}>
-            <div style={styles.mapLegendRow}>
-              <span style={styles.legendItemGreen}>&bull; Your GPS Location (Green)</span>
-              <span style={styles.legendItemRed}>&bull; Approved Hazard Pins (Red)</span>
-            </div>
-            <div ref={adminMapContainerRef} style={{ width: '100%', height: '220px', borderRadius: '8px', overflow: 'hidden' }}></div>
-          </div>
+          <div style={styles.sectionTitle}>Live Approved Danger Zone Map (Clean View)</div>
+          <iframe
+            title="Admin Hazard Map View"
+            width="100%"
+            height="220"
+            frameBorder="0"
+            scrolling="no"
+            src="https://maps.google.com/maps?q=13.7565,121.0583&t=m&z=14&ie=UTF8&iwloc=&output=embed"
+            style={styles.cleanMapIframe}
+          ></iframe>
 
           <div style={styles.sectionTitle}>Calendar-Integrated Incident Trends</div>
           <div style={styles.chartCard}>
@@ -745,13 +638,13 @@ export default function AdminScreen({ onBack }) {
               <div><span style={styles.fieldLabel}>TICKET REF NUMBER:</span> <span style={styles.fieldValBold}>{selectedReport.id || selectedReport.ticket_no}</span></div>
               <div><span style={styles.fieldLabel}>HAZARD CATEGORY / TITLE:</span> <span style={styles.fieldVal}>{selectedReport.hazard_type || selectedReport.category}</span></div>
               
-              {/* Connected Submitter Info */}
+              {/* Connected Submitter Link */}
               {(() => {
                 const submitter = getSubmitterInfo(selectedReport);
                 return (
-                  <div style={styles.submitterDetailBox} onClick={() => { setSelectedReport(null); setSelectedUser(submitter.profile); }}>
+                  <div style={styles.submitterDetailBox} onClick={() => { setSelectedReport(null); setSelectedUser(submitter.profile); setCurrentView('USER_HANDLING'); }}>
                     <span style={styles.fieldLabel}>SUBMITTED BY CITIZEN:</span>
-                    <div style={styles.submitterLinkText}>@{submitter.username} (Device: {submitter.deviceId}) &rarr; View User Profile & Submissions</div>
+                    <div style={styles.submitterLinkText}>@{submitter.username} (Device ID: {submitter.deviceId}) &rarr; View User Profile & Submissions</div>
                   </div>
                 );
               })()}
@@ -805,38 +698,65 @@ export default function AdminScreen({ onBack }) {
         </div>
       )}
 
-      {/* USER ACCOUNT MODAL (INCLUDES USER'S SUBMITTED REPORTS LIST WITH DIRECT CLICK REDIRECT) */}
+      {/* USER ACCOUNT MODAL (DISTINCT FOR VERIFIED vs GUEST) */}
       {selectedUser && (
         <div style={styles.modalBackdrop} onClick={() => setSelectedUser(null)}>
           <div style={styles.modalContent} onClick={(e) => e.stopPropagation()}>
             <div style={styles.modalHeader}>
-              <span style={styles.modalTitle}>User Account & Submission History</span>
+              <span style={styles.modalTitle}>User Account & Device Profile</span>
               <button style={styles.closeBtn} onClick={() => setSelectedUser(null)}>Close X</button>
             </div>
 
             <div style={styles.modalBodyStack}>
-              <div><span style={styles.fieldLabel}>ACCOUNT USERNAME:</span> <span style={styles.fieldValBold}>@{selectedUser.username || 'Unregistered User'}</span></div>
-              <div><span style={styles.fieldLabel}>HARDWARE DEVICE ID:</span> <span style={styles.fieldVal}>{selectedUser.device_id || 'GUEST-DEV'}</span></div>
-              <div><span style={styles.fieldLabel}>VERIFICATION STATUS:</span> <span style={getUserStatusBadgeStyle(selectedUser.verification_status)}>{(selectedUser.verification_status || 'GUEST').toUpperCase()}</span></div>
+              {/* Account Identity Info */}
+              {(selectedUser.verification_status || '').toUpperCase() === 'VERIFIED' ? (
+                <div style={styles.verifiedInfoBox}>
+                  <div style={styles.verifiedTagRow}>
+                    <span style={styles.badgeGreen}>VERIFIED CITIZEN RESIDENT</span>
+                  </div>
+                  <div style={{ marginTop: '6px' }}><span style={styles.fieldLabel}>FULL NAME:</span> <span style={styles.fieldValBold}>{selectedUser.full_name || selectedUser.username}</span></div>
+                  <div><span style={styles.fieldLabel}>USERNAME:</span> <span style={styles.fieldVal}>@{selectedUser.username}</span></div>
+                  <div><span style={styles.fieldLabel}>PHONE NUMBER:</span> <span style={styles.fieldVal}>{selectedUser.phone_number || 'Not provided'}</span></div>
+                  <div><span style={styles.fieldLabel}>BARANGAY RESIDENCE:</span> <span style={styles.fieldVal}>{selectedUser.barangay || 'Batangas City'}</span></div>
+                  <div><span style={styles.fieldLabel}>DEVICE ID:</span> <span style={styles.fieldVal}>{selectedUser.device_id || 'N/A'}</span></div>
+                </div>
+              ) : (
+                <div style={styles.guestInfoBox}>
+                  <div style={styles.verifiedTagRow}>
+                    <span style={getUserStatusBadgeStyle(selectedUser.verification_status)}>
+                      {(selectedUser.verification_status || 'GUEST').toUpperCase()} ACCOUNT
+                    </span>
+                  </div>
+                  <div style={styles.guestNoticeText}>
+                    This account operates as a Guest User without registered personal identity information. System tracks and manages submissions via Hardware Device ID.
+                  </div>
+                  <div style={{ marginTop: '6px' }}><span style={styles.fieldLabel}>HARDWARE DEVICE ID:</span> <span style={styles.fieldValBold}>{selectedUser.device_id || 'GUEST-DEV'}</span></div>
+                  <div><span style={styles.fieldLabel}>USERNAME / DISPLAY:</span> <span style={styles.fieldVal}>@{selectedUser.username || 'Guest User'}</span></div>
+                </div>
+              )}
 
-              {/* CLICKABLE SUBMITTED REPORTS LIST REDIRECTING TO TICKET DETAILS */}
+              {/* INTEGRATED SUBMITTED REPORTS LIST FOR THIS USER */}
               <div style={styles.userReportsContainer}>
-                <span style={styles.fieldLabel}>SUBMITTED REPORTS BY THIS ACCOUNT ({getUserSubmissions(selectedUser).length}) - TAP ITEM TO OPEN DETAILS:</span>
+                <span style={styles.fieldLabel}>REPORTS SUBMITTED BY THIS ACCOUNT ({getUserSubmissions(selectedUser).length}):</span>
                 {getUserSubmissions(selectedUser).length === 0 ? (
-                  <div style={styles.userReportEmptyNotice}>No reports submitted by this user account yet.</div>
+                  <div style={styles.userReportEmptyNotice}>No hazard reports submitted from this account / device ID yet.</div>
                 ) : (
                   getUserSubmissions(selectedUser).map((userRep) => (
                     <div 
                       key={userRep.id} 
-                      style={styles.userReportClickableCard}
-                      onClick={() => handleRedirectToReport(userRep)}
+                      style={styles.userReportMiniCard}
+                      onClick={() => {
+                        setSelectedUser(null);
+                        setSelectedReport(userRep);
+                        setCurrentView('SUBMITTED_REPORTS');
+                      }}
                     >
                       <div style={styles.cardHeaderRow}>
                         <span style={styles.ticketBadge}>{userRep.id || userRep.ticket_no}</span>
                         <span style={getUserStatusBadgeStyle(userRep.status)}>{userRep.status}</span>
                       </div>
-                      <div style={styles.userReportTitleText}>{userRep.hazard_type || userRep.category}</div>
-                      <div style={styles.userReportSubText}>📍 {userRep.location} &bull; Click to open report ticket &rarr;</div>
+                      <div style={styles.userReportMiniTitle}>{userRep.hazard_type || userRep.category}</div>
+                      <div style={styles.userReportMiniSub}>📍 {userRep.location} &bull; Click to open ticket &rarr;</div>
                     </div>
                   ))
                 )}
@@ -844,7 +764,7 @@ export default function AdminScreen({ onBack }) {
 
               {/* Moderation Controls */}
               <div style={styles.modalActionBox}>
-                <span style={styles.fieldLabel}>ACCOUNT MODERATION ACTIONS:</span>
+                <span style={styles.fieldLabel}>ACCOUNT & DEVICE MODERATION:</span>
                 <div style={styles.actionRow}>
                   {selectedUser.verification_status !== 'VERIFIED' && (
                     <button style={styles.btnApprove} onClick={() => handleUpdateUserStatus(selectedUser.device_id, 'VERIFIED', 'Verified by Admin')}>
@@ -864,17 +784,15 @@ export default function AdminScreen({ onBack }) {
         </div>
       )}
 
-      {/* WHITE FROSTED BLUR LIGHTBOX WITH FIXED SHAPE CONTAINER */}
+      {/* MESSENGER-STYLE BLURRED PHOTO PREVIEW LIGHTBOX */}
       {inspectImage && (
-        <div style={styles.whiteBlurBackdrop} onClick={() => setInspectImage(null)}>
-          <div style={styles.whiteBlurContainer} onClick={(e) => e.stopPropagation()}>
-            <div style={styles.whiteBlurHeader}>
-              <span style={styles.whiteBlurTitle}>EVIDENCE PHOTO INSPECTION PREVIEW</span>
-              <button style={styles.whiteBlurCloseBtn} onClick={() => setInspectImage(null)}>Close X</button>
-            </div>
-            <div style={styles.fixedShapeFrame}>
-              <img src={inspectImage} alt="Inspected Evidence" style={styles.fixedShapeImg} />
-            </div>
+        <div style={styles.messengerBlurBackdrop} onClick={() => setInspectImage(null)}>
+          <div style={styles.messengerBlurHeader}>
+            <span style={styles.messengerBlurTitle}>EVIDENCE PHOTO PREVIEW</span>
+            <button style={styles.messengerCloseBtn} onClick={() => setInspectImage(null)}>Close X</button>
+          </div>
+          <div style={styles.messengerImageWrapper} onClick={(e) => e.stopPropagation()}>
+            <img src={inspectImage} alt="Inspected Evidence" style={styles.messengerFloatingImg} />
           </div>
         </div>
       )}
@@ -897,23 +815,33 @@ const styles = {
   headerTitle: { fontSize: '18px', fontWeight: '800', color: '#0F172A', margin: 0 },
   headerSub: { fontSize: '11px', color: '#64748B' },
   
-  // Dashboard Welcoming Screen Styles
+  // Dashboard Minimal Banner
   dashboardContainer: { display: 'flex', flexDirection: 'column', gap: '14px' },
-  welcomeCard: { backgroundColor: '#0F766E', color: '#FFFFFF', borderRadius: '14px', padding: '14px 16px', boxShadow: '0 2px 6px rgba(15, 118, 110, 0.2)' },
-  welcomeTag: { fontSize: '9px', fontWeight: '800', letterSpacing: '0.8px', color: '#CCFBF1', marginBottom: '3px' },
-  welcomeTitle: { fontSize: '16px', fontWeight: '800', margin: '0 0 4px 0' },
-  welcomeDesc: { fontSize: '11px', color: '#E6F4F1', margin: 0, lineHeight: '1.3' },
+  welcomeBanner: { backgroundColor: '#0F766E', color: '#FFFFFF', borderRadius: '12px', padding: '14px', boxShadow: '0 2px 6px rgba(15, 118, 110, 0.15)' },
+  welcomeTag: { fontSize: '8px', fontWeight: '800', letterSpacing: '0.8px', color: '#CCFBF1', marginBottom: '2px' },
+  welcomeTitle: { fontSize: '15px', fontWeight: '800', margin: '0 0 4px 0' },
+  welcomeSubtext: { fontSize: '11px', color: '#E6F4F1', margin: 0, lineHeight: '1.3' },
 
   moduleSectionTitle: { fontSize: '10px', fontWeight: '800', color: '#475569', letterSpacing: '0.5px' },
-  moduleStack: { display: 'flex', flexDirection: 'column', gap: '10px' },
+  moduleStack: { display: 'flex', flexDirection: 'column', gap: '8px' },
   
-  // Module Cards Layout (Title Top, Short Desc Bottom, Badge Middle Right)
-  moduleCard: { backgroundColor: '#FFFFFF', border: '1px solid #CBD5E1', borderRadius: '12px', padding: '12px', cursor: 'pointer' },
-  moduleCardMainRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px' },
-  moduleLeftColumn: { flex: 1, display: 'flex', flexDirection: 'column', gap: '2px' },
-  moduleName: { fontSize: '13px', fontWeight: '800', color: '#0F172A' },
-  moduleShortDesc: { fontSize: '11px', color: '#64748B', lineHeight: '1.3' },
-  moduleRightBadgeBox: { display: 'flex', alignItems: 'center', justifyContent: 'center' },
+  // Clean Module Card Layout: Title + Short Desc on Left, Badge Vertically Centered on Right
+  moduleCard: { 
+    backgroundColor: '#FFFFFF', 
+    border: '1px solid #CBD5E1', 
+    borderRadius: '10px', 
+    padding: '12px 14px', 
+    cursor: 'pointer', 
+    display: 'flex', 
+    justifyContent: 'space-between', 
+    alignItems: 'center', 
+    gap: '12px',
+    boxShadow: '0 1px 2px rgba(0,0,0,0.03)'
+  },
+  moduleCardLeft: { display: 'flex', flexDirection: 'column', gap: '2px', flex: 1 },
+  moduleCardTitle: { fontSize: '13px', fontWeight: '800', color: '#0F172A' },
+  moduleCardShortDesc: { fontSize: '10px', color: '#64748B', lineHeight: '1.3' },
+  moduleCardRight: { display: 'flex', alignItems: 'center', justifyContent: 'flex-end', flexShrink: 0 },
 
   sectionStack: { display: 'flex', flexDirection: 'column', gap: '10px' },
   sectionTitle: { fontSize: '11px', fontWeight: '800', color: '#475569', textTransform: 'uppercase' },
@@ -927,6 +855,8 @@ const styles = {
   submitterBar: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#F8FAFC', padding: '4px 8px', borderRadius: '6px', margin: '4px 0' },
   submitterText: { fontSize: '10px', color: '#334155' },
   submitterTextSmall: { fontSize: '10px', color: '#64748B', margin: '2px 0' },
+  submitterDetailBox: { backgroundColor: '#F0FDF4', border: '1px solid #CCFBF1', borderRadius: '6px', padding: '6px 8px', cursor: 'pointer' },
+  submitterLinkText: { fontSize: '10px', fontWeight: '800', color: '#0F766E', marginTop: '2px' },
   photoCountBox: { fontSize: '10px', fontWeight: '800', color: '#0F766E', backgroundColor: '#F0FDF4', padding: '4px 8px', borderRadius: '4px', margin: '4px 0' },
 
   actionRow: { display: 'flex', gap: '6px', marginTop: '6px' },
@@ -945,30 +875,35 @@ const styles = {
 
   subTabContainer: { display: 'flex', gap: '6px', marginBottom: '8px' },
   subTabBtnActive: { flex: 1, padding: '8px', backgroundColor: '#0F766E', color: '#FFFFFF', border: 'none', borderRadius: '6px', fontSize: '10px', fontWeight: '800', cursor: 'pointer' },
-  subTabBtnInactive: { flex: 1, padding: '8px', backgroundColor: '#E2E8F0', color: '#475569', border: 'none', borderRadius: '6px', fontSize: '10px', fontWeight: '700', cursor: 'pointer' },
-
-  chipFilterRow: { display: 'flex', gap: '4px', overflowX: 'auto', marginBottom: '6px' },
-  chipActive: { padding: '4px 10px', backgroundColor: '#0F766E', color: '#FFFFFF', border: 'none', borderRadius: '12px', fontSize: '9px', fontWeight: '800', cursor: 'pointer' },
-  chipInactive: { padding: '4px 10px', backgroundColor: '#E2E8F0', color: '#475569', border: 'none', borderRadius: '12px', fontSize: '9px', fontWeight: '600', cursor: 'pointer' },
+  subTabBtnInactive: { flex: 1, padding: '8px', backgroundColor: '#E2E8F0', color: '#475569', border: 'none', borderRadius: '6px', fontSize: '10px', fontWeight: '600', cursor: 'pointer' },
+  chipFilterRow: { display: 'flex', gap: '4px', overflowX: 'auto', marginBottom: '8px' },
+  chipActive: { padding: '4px 8px', backgroundColor: '#0F766E', color: '#FFFFFF', border: 'none', borderRadius: '12px', fontSize: '9px', fontWeight: '800', cursor: 'pointer' },
+  chipInactive: { padding: '4px 8px', backgroundColor: '#E2E8F0', color: '#475569', border: 'none', borderRadius: '12px', fontSize: '9px', fontWeight: '600', cursor: 'pointer' },
 
   userCardRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#FFFFFF', border: '1px solid #CBD5E1', padding: '8px 10px', borderRadius: '8px', cursor: 'pointer', marginBottom: '6px' },
   userLeftBox: { display: 'flex', alignItems: 'center', gap: '8px' },
-  userAvatarSquare: { width: '28px', height: '28px', backgroundColor: '#CCFBF1', color: '#0F766E', borderRadius: '6px', fontSize: '10px', fontWeight: '800', display: 'flex', alignItems: 'center', justifyContent: 'center' },
-  numBadge: { fontSize: '10px', fontWeight: '800', color: '#0F766E', backgroundColor: '#CCFBF1', padding: '2px 6px', borderRadius: '4px' },
+  userAvatarSquare: { fontSize: '9px', fontWeight: '800', backgroundColor: '#CCFBF1', color: '#0F766E', padding: '4px 6px', borderRadius: '4px' },
+  numBadge: { fontSize: '9px', fontWeight: '800', backgroundColor: '#E2E8F0', color: '#475569', padding: '3px 6px', borderRadius: '4px' },
   userNameText: { fontSize: '12px', fontWeight: '800', color: '#0F172A' },
   userMetaText: { fontSize: '9px', color: '#64748B' },
 
-  verificationCard: { backgroundColor: '#FFFFFF', border: '1px solid #CBD5E1', borderRadius: '10px', padding: '10px' },
-  idPhotoContainer: { margin: '8px 0', padding: '6px', backgroundColor: '#F8FAFC', borderRadius: '6px', border: '1px solid #E2E8F0' },
-  idProofThumb: { width: '100%', height: '110px', objectFit: 'cover', borderRadius: '6px', cursor: 'pointer', marginTop: '4px' },
+  verificationCard: { backgroundColor: '#FFFFFF', border: '1px solid #CBD5E1', borderRadius: '10px', padding: '10px', marginBottom: '8px' },
+  idPhotoContainer: { marginTop: '6px', backgroundColor: '#F8FAFC', padding: '6px', borderRadius: '6px' },
+  idProofThumb: { width: '100%', height: '110px', objectFit: 'cover', borderRadius: '6px', marginTop: '4px', border: '1px solid #CBD5E1', cursor: 'pointer' },
 
-  purgeAllBtn: { width: '100%', padding: '10px', backgroundColor: '#991B1B', color: '#FFFFFF', border: 'none', borderRadius: '8px', fontSize: '10px', fontWeight: '800', cursor: 'pointer', marginBottom: '8px' },
+  userReportsContainer: { marginTop: '8px', backgroundColor: '#F8FAFC', border: '1px solid #CBD5E1', padding: '8px', borderRadius: '8px' },
+  userReportEmptyNotice: { fontSize: '10px', color: '#64748B', textAlign: 'center', padding: '6px 0' },
+  userReportMiniCard: { backgroundColor: '#FFFFFF', border: '1px solid #CBD5E1', borderRadius: '6px', padding: '6px 8px', marginTop: '4px', cursor: 'pointer' },
+  userReportMiniTitle: { fontSize: '11px', fontWeight: '800', color: '#0F172A' },
+  userReportMiniSub: { fontSize: '9px', color: '#0F766E', fontWeight: '700' },
 
-  mapCardBox: { backgroundColor: '#FFFFFF', border: '1px solid #CBD5E1', borderRadius: '10px', padding: '8px', marginBottom: '8px' },
-  mapLegendRow: { display: 'flex', gap: '12px', marginBottom: '6px', padding: '2px 4px' },
-  legendItemGreen: { fontSize: '10px', fontWeight: '800', color: '#166534' },
-  legendItemRed: { fontSize: '10px', fontWeight: '800', color: '#DC2626' },
+  verifiedInfoBox: { backgroundColor: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: '8px', padding: '10px' },
+  guestInfoBox: { backgroundColor: '#F8FAFC', border: '1px solid #CBD5E1', borderRadius: '8px', padding: '10px' },
+  guestNoticeText: { fontSize: '10px', color: '#64748B', lineHeight: '1.3', margin: '4px 0' },
+  verifiedTagRow: { marginBottom: '4px' },
 
+  purgeAllBtn: { width: '100%', padding: '8px', backgroundColor: '#991B1B', color: '#FFFFFF', border: 'none', borderRadius: '6px', fontSize: '10px', fontWeight: '800', cursor: 'pointer', marginBottom: '6px' },
+  cleanMapIframe: { borderRadius: '10px', border: 'none', display: 'block' },
   chartCard: { backgroundColor: '#FFFFFF', border: '1px solid #CBD5E1', borderRadius: '10px', padding: '12px' },
   calendarControlRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' },
   calendarLabel: { fontSize: '11px', fontWeight: '800', color: '#0F172A' },
@@ -981,13 +916,13 @@ const styles = {
   barDayLabel: { fontSize: '7px', color: '#64748B', marginTop: '2px' },
   chartFooterLegend: { fontSize: '9px', color: '#64748B', textAlign: 'center', marginTop: '6px' },
 
-  badgeGreen: { fontSize: '8px', fontWeight: '800', backgroundColor: '#DCFCE7', color: '#166534', padding: '2px 6px', borderRadius: '4px' },
-  badgeTeal: { fontSize: '8px', fontWeight: '800', backgroundColor: '#CCFBF1', color: '#0F766E', padding: '2px 6px', borderRadius: '4px' },
-  badgeOrange: { fontSize: '8px', fontWeight: '800', backgroundColor: '#FFEDD5', color: '#C2410C', padding: '2px 6px', borderRadius: '4px' },
-  badgeRed: { fontSize: '8px', fontWeight: '800', backgroundColor: '#FEE2E2', color: '#991B1B', padding: '2px 6px', borderRadius: '4px' },
-  badgeBlue: { fontSize: '8px', fontWeight: '800', backgroundColor: '#DBEAFE', color: '#1E40AF', padding: '2px 6px', borderRadius: '4px' },
+  badgeGreen: { fontSize: '8px', fontWeight: '800', backgroundColor: '#DCFCE7', color: '#166534', padding: '2px 5px', borderRadius: '4px' },
+  badgeTeal: { fontSize: '8px', fontWeight: '800', backgroundColor: '#CCFBF1', color: '#0F766E', padding: '2px 5px', borderRadius: '4px' },
+  badgeOrange: { fontSize: '8px', fontWeight: '800', backgroundColor: '#FFEDD5', color: '#C2410C', padding: '2px 5px', borderRadius: '4px' },
+  badgeRed: { fontSize: '8px', fontWeight: '800', backgroundColor: '#FEE2E2', color: '#991B1B', padding: '2px 5px', borderRadius: '4px' },
+  badgeBlue: { fontSize: '8px', fontWeight: '800', backgroundColor: '#DBEAFE', color: '#1E40AF', padding: '2px 5px', borderRadius: '4px' },
 
-  modalBackdrop: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.7)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '16px' },
+  modalBackdrop: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.65)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '16px' },
   modalContent: { backgroundColor: '#FFFFFF', borderRadius: '12px', padding: '14px', maxWidth: '380px', width: '100%', maxHeight: '85vh', overflowY: 'auto' },
   modalHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' },
   modalTitle: { fontSize: '13px', fontWeight: '800', color: '#0F172A' },
@@ -997,59 +932,31 @@ const styles = {
   fieldValBold: { fontSize: '12px', fontWeight: '800', color: '#0F766E' },
   fieldVal: { fontSize: '11px', color: '#0F172A', fontWeight: '600' },
   descText: { fontSize: '11px', color: '#334155', margin: '2px 0 0 0', lineHeight: '1.3' },
-
-  submitterDetailBox: { backgroundColor: '#F0FDF4', border: '1px solid #86EFAC', padding: '8px', borderRadius: '6px', cursor: 'pointer' },
-  submitterLinkText: { fontSize: '11px', fontWeight: '800', color: '#166534', marginTop: '2px' },
-
   gpsMapBox: { marginTop: '4px', borderRadius: '6px', overflow: 'hidden' },
   photoGalleryGrid: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px', marginTop: '4px' },
   galleryThumb: { width: '100%', height: '65px', objectFit: 'cover', borderRadius: '6px', border: '2px solid #0F766E', cursor: 'pointer' },
   modalActionBox: { marginTop: '8px', backgroundColor: '#F8FAFC', border: '1px solid #CBD5E1', padding: '8px', borderRadius: '8px' },
 
-  userReportsContainer: { marginTop: '6px', borderTop: '1px solid #E2E8F0', paddingTop: '8px' },
-  userReportEmptyNotice: { fontSize: '10px', color: '#94A3B8', padding: '6px', textAlign: 'center' },
-  userReportClickableCard: { backgroundColor: '#F8FAFC', border: '1px solid #CBD5E1', borderRadius: '6px', padding: '6px 8px', marginBottom: '6px', cursor: 'pointer' },
-  userReportTitleText: { fontSize: '11px', fontWeight: '800', color: '#0F172A', margin: '2px 0' },
-  userReportSubText: { fontSize: '9px', color: '#0F766E', fontWeight: '700' },
-
-  whiteBlurBackdrop: { 
-    position: 'fixed', 
-    top: 0, 
-    left: 0, 
-    right: 0, 
-    bottom: 0, 
-    backgroundColor: 'rgba(255, 255, 255, 0.85)', 
-    backdropFilter: 'blur(16px)', 
-    WebkitBackdropFilter: 'blur(16px)',
-    display: 'flex', 
-    justifyContent: 'center', 
-    alignItems: 'center', 
-    zIndex: 9999, 
-    padding: '16px' 
-  },
-  whiteBlurContainer: { 
-    backgroundColor: '#FFFFFF', 
-    borderRadius: '16px', 
-    padding: '16px', 
-    boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)',
-    border: '2px solid #0F766E',
+  // MESSENGER-STYLE BLURRED PHOTO PREVIEW LIGHTBOX (No Solid Box, Full Glass Blur Overlay)
+  messengerBlurBackdrop: {
+    position: 'fixed',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(15, 23, 42, 0.65)',
+    backdropFilter: 'blur(20px)',
+    WebkitBackdropFilter: 'blur(20px)',
     display: 'flex',
     flexDirection: 'column',
-    alignItems: 'center'
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    zIndex: 9999,
+    padding: '20px 16px'
   },
-  whiteBlurHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', marginBottom: '12px' },
-  whiteBlurTitle: { fontSize: '10px', fontWeight: '800', color: '#0F766E', letterSpacing: '0.5px' },
-  whiteBlurCloseBtn: { backgroundColor: '#DC2626', color: '#FFFFFF', border: 'none', padding: '4px 10px', borderRadius: '6px', fontSize: '10px', fontWeight: '800', cursor: 'pointer' },
-  fixedShapeFrame: { 
-    width: '280px', 
-    height: '280px', 
-    backgroundColor: '#F8FAFC', 
-    borderRadius: '12px', 
-    border: '1px solid #CBD5E1', 
-    overflow: 'hidden', 
-    display: 'flex', 
-    justifyContent: 'center', 
-    alignItems: 'center' 
-  },
-  fixedShapeImg: { width: '100%', height: '100%', objectFit: 'contain' }
+  messengerBlurHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', maxWidth: '440px' },
+  messengerBlurTitle: { fontSize: '11px', fontWeight: '800', color: '#FFFFFF', letterSpacing: '0.8px', textShadow: '0 1px 2px rgba(0,0,0,0.5)' },
+  messengerCloseBtn: { backgroundColor: 'rgba(255, 255, 255, 0.25)', color: '#FFFFFF', border: '1px solid rgba(255, 255, 255, 0.4)', padding: '6px 12px', borderRadius: '20px', fontSize: '11px', fontWeight: '800', cursor: 'pointer', backdropFilter: 'blur(10px)' },
+  messengerImageWrapper: { flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'center', width: '100%', maxWidth: '440px', padding: '12px 0' },
+  messengerFloatingImg: { maxWidth: '100%', maxHeight: '78vh', objectFit: 'contain', borderRadius: '12px', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)' }
 };
