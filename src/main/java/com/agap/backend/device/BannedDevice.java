@@ -12,9 +12,10 @@ import java.time.Instant;
 @Table(name = "banned_devices")
 public class BannedDevice {
     @Id
+    @Column(name = "device_id")
     private String deviceId;
 
-    @Column(nullable = false, updatable = false)
+    @Column(name = "banned_at", nullable = false, updatable = false)
     private Instant bannedAt;
 
     protected BannedDevice() {

@@ -22,9 +22,16 @@ CREATE TABLE IF NOT EXISTS public.admin_users (
     created_at timestamptz NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS public.banned_devices (
+    device_id text PRIMARY KEY,
+    banned_at timestamptz NOT NULL DEFAULT now()
+);
+
 REVOKE ALL ON TABLE public.admin_users FROM anon, authenticated;
 REVOKE ALL ON TABLE public.admin_users FROM PUBLIC;
 ALTER TABLE public.admin_users ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.banned_devices FROM anon, authenticated, PUBLIC;
+ALTER TABLE public.banned_devices ENABLE ROW LEVEL SECURITY;
 
 CREATE OR REPLACE FUNCTION public.is_agap_admin()
 RETURNS boolean

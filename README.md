@@ -54,8 +54,10 @@ Before deploying the secured API:
 
 1. Back up the database, then run [`supabase/rls-and-admins.sql`](./supabase/rls-and-admins.sql)
    in the Supabase SQL Editor. It enables RLS, replaces existing policies on
-   `profiles` and `reports`, removes direct client access to reports, and limits
-   profile access to its authenticated owner or an admin.
+   `profiles` and `reports`, creates the API's `banned_devices` table, removes
+   direct client access to reports, and limits profile access to its
+   authenticated owner or an admin. It is safe to rerun to add the missing
+   table; existing device bans are retained.
    Existing profiles are intentionally left unlinked; do not assign ownership
    using `device_id`, which is client-controlled.
 2. In Supabase **Authentication > Providers**, enable **Anonymous Sign-Ins**.
