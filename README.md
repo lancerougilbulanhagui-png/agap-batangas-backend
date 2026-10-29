@@ -1,7 +1,8 @@
 # AGAP Java Backend
 
 Spring Boot REST API for the AGAP hazard-reporting application. The backend uses
-Java 17+, Spring Data JPA, and a local H2 file database by default.
+Java 17+ and Spring Data JPA. It uses a local H2 file database by default and can
+connect to Supabase PostgreSQL for shared report storage.
 
 ## Run
 
@@ -13,6 +14,36 @@ mvn spring-boot:run
 
 The API starts at `http://localhost:8080`; report data is stored in
 `data/agap.mv.db`. Run backend tests with `mvn test`.
+
+## Use Supabase PostgreSQL
+
+The Java API writes reports to the existing Supabase `public.reports` table when
+configured with a PostgreSQL connection. In the Supabase dashboard, open
+**Connect** and select **Transaction pooler** for Vercel's serverless-style
+runtime. Use the exact pooler host, port, and username Supabase displays.
+Configure these as private environment variables on the backend host (not in
+the React app):
+
+| Variable | Value |
+|---|---|
+| `AGAP_DATABASE_URL` | `jdbc:postgresql://<pooler-host>:<port>/<database>?sslmode=require&prepareThreshold=0` using the Transaction pooler values shown by Supabase |
+| `AGAP_DATABASE_USERNAME` | Database user from the Supabase connection details |
+| `AGAP_DATABASE_PASSWORD` | Database password from Supabase |
+| `AGAP_JPA_DDL_AUTO` | `none` after confirming the table schema below |
+
+The existing `reports` table should contain `id`, `ticket_no`, `device_id`,
+`category`, `hazard_type`, `severity`, `location`, `coordinates`, `description`,
+`status`, `proof_photos`, `photos`, `notice_text`, and `created_at`. If
+`notice_text` is missing, add it from the Supabase SQL Editor before deployment:
+
+```sql
+ALTER TABLE public.reports ADD COLUMN IF NOT EXISTS notice_text text;
+```
+
+Keep schema auto-update disabled in production to avoid unintended schema
+changes. The application uses a small connection pool by default; adjust
+`AGAP_DB_POOL_SIZE` only if needed. Never put the database password or a
+service-role key in the frontend.
 
 The frontend uses `http://localhost:8080/api` by default. Set
 `REACT_APP_API_BASE_URL` in the frontend environment when the API is hosted at a

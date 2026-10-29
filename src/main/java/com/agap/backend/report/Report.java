@@ -5,7 +5,6 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
-import jakarta.persistence.Lob;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
 
@@ -13,48 +12,50 @@ import java.time.Instant;
 import java.util.UUID;
 
 @Entity
-@Table(name = "hazard_reports")
+@Table(name = "reports")
 public class Report {
     @Id
+    @Column(name = "id")
     private String id;
 
-    @Column(nullable = false, unique = true)
+    @Column(name = "ticket_no")
     private String ticketNo;
 
-    @Column(nullable = false)
+    @Column(name = "category")
     private String category;
 
-    @Column(nullable = false)
+    @Column(name = "hazard_type")
     private String hazardType;
 
-    @Column(nullable = false)
+    @Column(name = "severity")
     private String severity;
 
-    @Column(nullable = false)
+    @Column(name = "location")
     private String location;
 
+    @Column(name = "coordinates")
     private String coordinates;
 
-    @Lob
+    @Column(name = "description", columnDefinition = "text")
     private String description;
 
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false)
+    @Column(name = "status")
     private ReportStatus status;
 
-    @Column(nullable = false)
+    @Column(name = "device_id")
     private String deviceId;
 
-    @Lob
+    @Column(name = "proof_photos", columnDefinition = "text")
     private String proofPhotos;
 
-    @Lob
+    @Column(name = "photos", columnDefinition = "text")
     private String photos;
 
-    @Lob
+    @Column(name = "notice_text", columnDefinition = "text")
     private String noticeText;
 
-    @Column(nullable = false, updatable = false)
+    @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
     protected Report() {
