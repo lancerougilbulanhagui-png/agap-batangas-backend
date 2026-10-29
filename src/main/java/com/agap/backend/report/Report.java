@@ -27,6 +27,9 @@ public class Report {
     @Column(name = "hazard_type")
     private String hazardType;
 
+    @Column(name = "report_type")
+    private String reportType;
+
     @Column(name = "severity")
     private String severity;
 
@@ -67,6 +70,7 @@ public class Report {
         this.id = UUID.randomUUID().toString();
         this.category = category;
         this.hazardType = hazardType;
+        this.reportType = category;
         this.severity = severity;
         this.location = location;
         this.coordinates = coordinates;
@@ -102,6 +106,10 @@ public class Report {
 
     public String getHazardType() {
         return hazardType;
+    }
+
+    public String getReportType() {
+        return reportType;
     }
 
     public String getSeverity() {

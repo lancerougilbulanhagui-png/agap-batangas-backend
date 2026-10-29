@@ -51,6 +51,7 @@ class ReportControllerTest {
                                 """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.ticket_no").exists())
+                .andExpect(jsonPath("$.report_type", is("FLOODING")))
                 .andExpect(jsonPath("$.status", is("PENDING")))
                 .andReturn()
                 .getResponse()
