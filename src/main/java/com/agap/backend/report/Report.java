@@ -49,6 +49,9 @@ public class Report {
     @Column(name = "device_id")
     private String deviceId;
 
+    @Column(name = "auth_user_id")
+    private UUID authUserId;
+
     @Column(name = "proof_photos", columnDefinition = "text")
     private String proofPhotos;
 
@@ -66,7 +69,7 @@ public class Report {
 
     public Report(String category, String hazardType, String severity, String location,
                   String coordinates, String description, String deviceId,
-                  String proofPhotos, String photos) {
+                  String proofPhotos, String photos, UUID authUserId) {
         this.id = UUID.randomUUID().toString();
         this.category = category;
         this.hazardType = hazardType;
@@ -76,6 +79,7 @@ public class Report {
         this.coordinates = coordinates;
         this.description = description;
         this.deviceId = deviceId;
+        this.authUserId = authUserId;
         this.proofPhotos = proofPhotos;
         this.photos = photos;
         this.status = ReportStatus.PENDING;
@@ -134,6 +138,10 @@ public class Report {
 
     public String getDeviceId() {
         return deviceId;
+    }
+
+    public UUID getAuthUserId() {
+        return authUserId;
     }
 
     public String getProofPhotos() {

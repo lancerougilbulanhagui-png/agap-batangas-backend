@@ -23,7 +23,7 @@ public class AdminReportController {
 
     @GetMapping
     public List<Report> list() {
-        return reportService.findReports(null, null);
+        return reportService.findAllReports();
     }
 
     @PutMapping("/{id}/status")

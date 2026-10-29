@@ -8,6 +8,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.UUID;
 
 @Service
 public class ReportService {
@@ -24,7 +25,7 @@ public class ReportService {
     }
 
     @Transactional
-    public Report create(CreateReportRequest request) {
+    public Report create(CreateReportRequest request, UUID authUserId) {
         if (bannedDeviceRepository.existsById(request.deviceId())) {
             throw new IllegalArgumentException("This device is not allowed to submit reports.");
         }
@@ -43,22 +44,25 @@ public class ReportService {
                 request.description(),
                 request.deviceId().trim(),
                 firstNonBlank(request.proofPhotos(), request.photos()),
-                firstNonBlank(request.photos(), request.proofPhotos())
+                firstNonBlank(request.photos(), request.proofPhotos()),
+                authUserId
         ));
     }
 
     @Transactional(readOnly = true)
-    public List<Report> findReports(String deviceId, String status) {
-        if (deviceId != null && !deviceId.isBlank() && status != null && !status.isBlank()) {
-            return reportRepository.findByDeviceIdAndStatusOrderByCreatedAtDesc(
-                    deviceId, parseStatus(status));
-        }
-        if (deviceId != null && !deviceId.isBlank()) {
-            return reportRepository.findByDeviceIdOrderByCreatedAtDesc(deviceId);
-        }
+    public List<Report> findReports(UUID authUserId, String status) {
         if (status != null && !status.isBlank()) {
-            return reportRepository.findByStatusInOrderByCreatedAtDesc(List.of(parseStatus(status)));
+            ReportStatus reportStatus = parseStatus(status);
+            if (reportStatus == ReportStatus.APPROVED) {
+                return reportRepository.findByStatusOrderByCreatedAtDesc(reportStatus);
+            }
+            return reportRepository.findByAuthUserIdAndStatusOrderByCreatedAtDesc(authUserId, reportStatus);
         }
+        return reportRepository.findByAuthUserIdOrderByCreatedAtDesc(authUserId);
+    }
+
+    @Transactional(readOnly = true)
+    public List<Report> findAllReports() {
         return reportRepository.findAllByOrderByCreatedAtDesc();
     }
 
